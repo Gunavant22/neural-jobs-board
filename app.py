@@ -150,7 +150,7 @@ if not st.session_state['logged_in']:
                     <p style="color: #8892b0; font-size: 1.1rem; line-height: 1.5; margin-bottom: 30px;">
                         The premier decentralized hub for Artificial Intelligence, Large Language Models, and Data Science operatives.
                     </p>
-                    <a href="{auth_url}" class="cyber-btn" target="_self">CONNECT DATASTREAM</a>
+                    <a href="{auth_url}" class="cyber-btn" target="_top">CONNECT DATASTREAM</a>
                 </div>
             </div>
             """
