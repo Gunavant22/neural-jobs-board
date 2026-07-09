@@ -5,6 +5,7 @@ import pandas as pd
 import os
 import PyPDF2
 import uuid
+from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
 
 # ==========================================
@@ -123,7 +124,7 @@ def display_job_card(row, is_admin=False):
             st.markdown(title_html, unsafe_allow_html=True)
             st.markdown(f"<p style='color:#8892b0; font-size: 1.1rem; margin-top: 5px;'>{row['company']}</p>", unsafe_allow_html=True)
             
-            # --- SALARY FORMATTING (DOLLAR SIGN FIX) ---
+            # --- SALARY FORMATTING ---
             sal_val = str(row['salary_amount']).strip()
             if sal_val and sal_val.lower() not in ["n/a", ""]:
                 if not sal_val.startswith("$"):
@@ -330,7 +331,7 @@ else:
                     m_location = "Remote"
                 
                 c1, c2 = st.columns(2)
-                with c1: m_sal_amount = st.text_input("Compensation (in USD)")
+                with c1: m_sal_amount = st.text_input("Compensation (in USD $)")
                 with c2: m_sal_type = st.selectbox("Cycle", ["Yearly", "Monthly", "Hourly", "Unspecified"])
                 m_url = st.text_input("Uplink URL")
                 m_desc = st.text_area("File Contents")
