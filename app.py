@@ -183,8 +183,23 @@ if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
 if 'user_role' not in st.session_state: st.session_state['user_role'] = None
 if 'user_name' not in st.session_state: st.session_state['user_name'] = ""
 
+# 🛠️ FIX: Process Google Login FIRST before blocking anyone!
+if not st.session_state['logged_in'] and 'code' in st.query_params:
+    with st.spinner("Decrypting neural pathways..."):
+        code = st.query_params['code']
+        res = requests.post("https://oauth2.googleapis.com/token", data={"code": code, "client_id": CLIENT_ID, "client_secret": CLIENT_SECRET, "redirect_uri": REDIRECT_URI, "grant_type": "authorization_code"})
+        if res.status_code == 200:
+            user_data = requests.get("https://www.googleapis.com/oauth2/v1/userinfo", headers={"Authorization": f"Bearer {res.json().get('access_token')}"}).json()
+            st.session_state.update({'logged_in': True, 'user_name': user_data.get("name"), 'user_role': "admin" if user_data.get("email") in ADMIN_EMAILS else "seeker"})
+            st.query_params.clear()
+            st.rerun()
+        else: 
+            st.error("Access Denied. Invalid authorization protocols.")
+
+# Get System Status
 is_maint, res_time, maint_msg, is_warn, warn_msg = get_sys_status()
 
+# 🛑 MAINTENANCE LOCKOUT (Only runs if you are NOT an Admin)
 if is_maint == 1 and st.session_state['user_role'] != "admin":
     auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}&scope=openid%20email%20profile"
     col1, col2, col3 = st.columns([1, 2, 1])
@@ -203,38 +218,177 @@ if is_maint == 1 and st.session_state['user_role'] != "admin":
             </div>
         </div>
         """, unsafe_allow_html=True)
-    st.stop() 
+    st.stop() # Blocks normal users here!
 
+# --- NORMAL LOGIN SCREEN ---
 if not st.session_state['logged_in']:
-    if 'code' in st.query_params:
-        with st.spinner("Decrypting neural pathways..."):
-            code = st.query_params['code']
-            res = requests.post("https://oauth2.googleapis.com/token", data={"code": code, "client_id": CLIENT_ID, "client_secret": CLIENT_SECRET, "redirect_uri": REDIRECT_URI, "grant_type": "authorization_code"})
-            if res.status_code == 200:
-                user_data = requests.get("https://www.googleapis.com/oauth2/v1/userinfo", headers={"Authorization": f"Bearer {res.json().get('access_token')}"}).json()
-                st.session_state.update({'logged_in': True, 'user_name': user_data.get("name"), 'user_role': "admin" if user_data.get("email") in ADMIN_EMAILS else "seeker"})
-                st.query_params.clear()
-                st.rerun()
-            else: 
-                st.error("Access Denied. Invalid authorization protocols.")
-    else:
-        auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}&scope=openid%20email%20profile"
-        col1, col2, col3 = st.columns([1, 2, 1])
-        with col2:
-            st.markdown(f"""
-            <div class="login-wrapper">
-                <div class="login-card">
-                    <p class="system-status">[ SYSTEM STATUS: SECURE & ONLINE ]</p>
-                    <div class="app-title-large">NEURAL</div>
-                    <div class="app-title-large" style="font-size: 2.5rem; margin-bottom: 20px;">// TALENT GRID</div>
-                    <p style="color: #8892b0; font-size: 1.1rem; line-height: 1.5; margin-bottom: 30px;">
-                        The premier decentralized hub for Artificial Intelligence, Large Language Models, and Data Science operatives.
-                    </p>
-                    <a href="{auth_url}" class="cyber-btn" target="_blank">CONNECT DATASTREAM</a>
-                </div>
+    auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}&scope=openid%20email%20profile"
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.markdown(f"""
+        <div class="login-wrapper">
+            <div class="login-card">
+                <p class="system-status">[ SYSTEM STATUS: SECURE & ONLINE ]</p>
+                <div class="app-title-large">NEURAL</div>
+                <div class="app-title-large" style="font-size: 2.5rem; margin-bottom: 20px;">// TALENT GRID</div>
+                <p style="color: #8892b0; font-size: 1.1rem; line-height: 1.5; margin-bottom: 30px;">
+                    The premier decentralized hub for Artificial Intelligence, Large Language Models, and Data Science operatives.
+                </p>
+                <a href="{auth_url}" class="cyber-btn" target="_blank">CONNECT DATASTREAM</a>
             </div>
-            """, unsafe_allow_html=True)
+        </div>
+        """, unsafe_allow_html=True)
 
+# ==========================================
+# 6. MAIN APP DASHBOARDS
+# ==========================================
+else:
+    if is_warn == 1:
+        st.markdown(f"<div class='cyber-warning-banner'>⚠️ SYSTEM NOTICE: {warn_msg}</div>", unsafe_allow_html=True)
+
+    col_logo, col_logout = st.columns([8, 1])
+    with col_logo: 
+        st.markdown('<p class="app-title-small">NEURAL // JOBS</p>', unsafe_allow_html=True)
+        st.markdown(f'<p style="color: #00ffcc; font-family: \'Share Tech Mono\', monospace; margin-top: -5px;">> Uplink established. Operator: {st.session_state["user_name"]}</p>', unsafe_allow_html=True)
+    with col_logout:
+        st.write("") 
+        if st.button("DISCONNECT"):
+            st.session_state.update({'logged_in': False, 'user_role': None, 'user_name': ""})
+            st.rerun()
+
+    conn = sqlite3.connect(DB_PATH)
+    df = pd.read_sql_query("SELECT * FROM jobs", conn)
+    conn.close()
+    if 'date_added' in df.columns: df['date_added'] = pd.to_datetime(df['date_added'], errors='coerce').fillna(pd.to_datetime('today'))
+    else: df['date_added'] = pd.to_datetime('today')
+
+    # --- ADMIN VIEW ---
+    if st.session_state['user_role'] == "admin":
+        st.markdown("### [ GRID METRICS ]")
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("TOTAL DATANODES", len(df))
+        m2.metric("API FEEDS", len(df[df['source'] != 'Manual']) if not df.empty else 0)
+        m3.metric("MANUAL INSERTS", len(df[df['source'] == 'Manual']) if not df.empty else 0)
+        
+        if is_maint == 1:
+            m4.metric("SYSTEM STATUS", "MAINTENANCE")
+            st.error(f"⚠️ SITE IS OFFLINE FOR USERS. Auto-resumes at: {res_time}")
+        elif is_warn == 1:
+            m4.metric("SYSTEM STATUS", "WARNING ACTIVE")
+        else:
+            m4.metric("SYSTEM STATUS", "ONLINE")
+            
+        st.write("---")
+
+        tab1, tab2, tab3, tab4 = st.tabs(["[ RUN ENGINE ]", "[ INJECT DATA ]", "[ NODE LIST ]", "[ ⚙️ SYS CONTROLS ]"])
+        
+        with tab4:
+            st.markdown("#### Stage 1: Global Broadcast (Warning)")
+            st.write("Send a pulsing orange banner to all active users without turning the site off yet.")
+            if is_warn == 0:
+                with st.form("warn_form"):
+                    w_msg = st.text_input("Warning Message", value="System maintenance will begin in 15 minutes. Please save your work.")
+                    if st.form_submit_button("📢 BROADCAST WARNING"):
+                        conn = sqlite3.connect(DB_PATH)
+                        conn.cursor().execute("UPDATE sys_settings SET is_warning=?, warning_msg=? WHERE id=1", (1, w_msg))
+                        conn.commit()
+                        conn.close()
+                        st.rerun()
+            else:
+                if st.button("🔇 CLEAR WARNING"):
+                    conn = sqlite3.connect(DB_PATH)
+                    conn.cursor().execute("UPDATE sys_settings SET is_warning=0, warning_msg='' WHERE id=1")
+                    conn.commit()
+                    conn.close()
+                    st.rerun()
+
+            st.write("---")
+            st.markdown("#### Stage 2: System Lockdown (Maintenance)")
+            st.write("Activate this to kick everyone off the grid. Only you can log in.")
+            if is_maint == 0:
+                with st.form("maint_form"):
+                    downtime_hours = st.number_input("Hours of Downtime", min_value=1, max_value=48, value=2)
+                    m_msg = st.text_input("Lockdown Message", value="We are upgrading the core neural network. Stand by.")
+                    if st.form_submit_button("🚨 INITIATE LOCKDOWN", type="primary"):
+                        resume_calc = (datetime.now() + timedelta(hours=downtime_hours)).strftime("%Y-%m-%d %H:%M:%S")
+                        conn = sqlite3.connect(DB_PATH)
+                        conn.cursor().execute("UPDATE sys_settings SET is_maintenance=?, resume_time=?, message=? WHERE id=1", (1, resume_calc, m_msg))
+                        conn.commit()
+                        conn.close()
+                        st.rerun()
+            else:
+                if st.button("✅ DEACTIVATE LOCKDOWN"):
+                    conn = sqlite3.connect(DB_PATH)
+                    conn.cursor().execute("UPDATE sys_settings SET is_maintenance=0 WHERE id=1")
+                    conn.commit()
+                    conn.close()
+                    st.rerun()
+
+        with tab1:
+            if st.button(">>> INITIATE GLOBAL SCRAPE", type="primary", use_container_width=True):
+                with st.spinner("Extracting web data..."):
+                    st.success(f"Successfully extracted {run_auto_job_engine()} new nodes!")
+                    st.rerun()
+        with tab2:
+            with st.container(border=True):
+                with st.form("manual"):
+                    m_title = st.text_input("Job Title")
+                    m_company = st.text_input("Entity / Company")
+                    c1, c2 = st.columns(2)
+                    with c1: m_sal_amount = st.text_input("Compensation")
+                    with c2: m_sal_type = st.selectbox("Cycle", ["Yearly", "Monthly", "Hourly", "Unspecified"])
+                    m_url = st.text_input("Uplink URL")
+                    m_desc = st.text_area("File Contents")
+                    if st.form_submit_button("INJECT NODE", type="primary"):
+                        conn = sqlite3.connect(DB_PATH)
+                        today_str = datetime.now().strftime("%Y-%m-%d")
+                        conn.cursor().execute("INSERT INTO jobs (id, title, company, location, url, source, description, salary_amount, salary_type, date_added) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                                              ("MAN_"+str(uuid.uuid4())[:8], m_title, m_company, "Remote", m_url, "Manual", m_desc or "No desc", m_sal_amount or "N/A", m_sal_type, today_str))
+                        conn.commit()
+                        conn.close()
+                        st.success("Injection Successful.")
+                        st.rerun()
+        with tab3:
+            if df.empty: st.info("Grid empty. Run global scrape.")
+            else:
+                df = df.sort_values(by='date_added', ascending=False)
+                for _, row in df.iterrows(): display_job_card(row, is_admin=True)
+
+    # --- SEEKER VIEW ---
+    elif st.session_state['user_role'] == "seeker":
+        thirty_days_ago = pd.to_datetime('today') - timedelta(days=30)
+        df_seeker = df[df['date_added'] >= thirty_days_ago].copy()
+
+        tab_browse, tab_match = st.tabs(["[ GRID SEARCH ]", "[ AI OVERRIDE ]"])
+        with tab_browse:
+            col_search, col_time = st.columns([3, 1])
+            with col_search: search = st.text_input("QUERY DATABASE...", placeholder="Parameters: Python, OpenAI, Remote...")
+            with col_time: time_filter = st.selectbox("TIME RANGE", ["All Active", "Past 24 Hours", "Past 7 Days"])
+            st.write("---")
+            if time_filter == "Past 24 Hours": df_seeker = df_seeker[df_seeker['date_added'] >= (pd.to_datetime('today') - timedelta(days=1))]
+            elif time_filter == "Past 7 Days": df_seeker = df_seeker[df_seeker['date_added'] >= (pd.to_datetime('today') - timedelta(days=7))]
+            if search: df_seeker = df_seeker[df_seeker['title'].str.contains(search, case=False) | df_seeker['company'].str.contains(search, case=False)]
+            
+            df_seeker = df_seeker.sort_values(by='date_added', ascending=False)
+            if df_seeker.empty: st.info("No nodes match parameters.")
+            else:
+                for _, row in df_seeker.iterrows(): display_job_card(row, is_admin=False)
+                
+        with tab_match:
+            with st.container(border=True):
+                uploaded_file = st.file_uploader("UPLOAD DATAPACK (PDF)", type="pdf")
+            if uploaded_file:
+                with st.spinner("Running neural analysis..."):
+                    skills = [s for s in ['python', 'sql', 'react', 'java', 'ai', 'data', 'llm', 'machine learning', 'pytorch'] if s in extract_text_from_pdf(uploaded_file)]
+                    if skills:
+                        st.success(f"**Parameters Found:** {', '.join(skills).title()}")
+                        st.write("---")
+                        matched = df_seeker[df_seeker['title'].str.lower().str.contains('|'.join(skills))]
+                        if not matched.empty:
+                            st.markdown(f"#### >>> MATCHES FOUND ({len(matched)}):")
+                            for _, row in matched.head(10).iterrows(): display_job_card(row, is_admin=False)
+                        else: st.info("No matching active nodes currently active.")
+                    else: st.warning("Analysis failed. No valid parameters detected.")
 # ==========================================
 # 6. MAIN APP DASHBOARDS
 # ==========================================
