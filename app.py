@@ -68,22 +68,16 @@ def init_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, title TEXT, company TEXT, location TEXT, url TEXT, source TEXT, description TEXT, salary_amount TEXT, salary_type TEXT)''')
-    try: 
-        c.execute("ALTER TABLE jobs ADD COLUMN date_added TEXT")
-    except sqlite3.OperationalError: 
-        pass
+    try: c.execute("ALTER TABLE jobs ADD COLUMN date_added TEXT")
+    except sqlite3.OperationalError: pass
     
     c.execute('''CREATE TABLE IF NOT EXISTS sys_settings (id INTEGER PRIMARY KEY, is_maintenance INTEGER, resume_time TEXT, message TEXT)''')
     c.execute("INSERT OR IGNORE INTO sys_settings (id, is_maintenance, resume_time, message) VALUES (1, 0, '', '')")
     
-    try: 
-        c.execute("ALTER TABLE sys_settings ADD COLUMN is_warning INTEGER DEFAULT 0")
-    except sqlite3.OperationalError: 
-        pass
-    try: 
-        c.execute("ALTER TABLE sys_settings ADD COLUMN warning_msg TEXT DEFAULT ''")
-    except sqlite3.OperationalError: 
-        pass
+    try: c.execute("ALTER TABLE sys_settings ADD COLUMN is_warning INTEGER DEFAULT 0")
+    except sqlite3.OperationalError: pass
+    try: c.execute("ALTER TABLE sys_settings ADD COLUMN warning_msg TEXT DEFAULT ''")
+    except sqlite3.OperationalError: pass
 
     conn.commit()
     conn.close()
@@ -105,11 +99,10 @@ def get_sys_status():
     if is_maint == 1 and res_time:
         if datetime.now() > datetime.strptime(res_time, "%Y-%m-%d %H:%M:%S"):
             conn = sqlite3.connect(DB_PATH)
-            conn.cursor().execute("UPDATE sys_settings SET is_maintenance=0 WHERE id=1")
+            conn.cursor().execute("UPDATE sys_settings SET is_maintenance=0, is_warning=0 WHERE id=1")
             conn.commit()
             conn.close()
-            return (0, "", "", is_warn, warn_msg)
-            
+            return (0, "", "", 0, "")
     return (is_maint, res_time, msg, is_warn, warn_msg)
 
 def clean_html(raw_html):
@@ -156,10 +149,8 @@ def run_auto_job_engine():
     return new_count
 
 def extract_text_from_pdf(uploaded_file):
-    try: 
-        return "".join([page.extract_text() + " " for page in PyPDF2.PdfReader(uploaded_file).pages]).lower()
-    except: 
-        return ""
+    try: return "".join([page.extract_text() + " " for page in PyPDF2.PdfReader(uploaded_file).pages]).lower()
+    except: return ""
 
 def display_job_card(row, is_admin=False):
     is_expired = False
@@ -172,16 +163,12 @@ def display_job_card(row, is_admin=False):
             st.markdown(f"<div class='company-avatar'>{row['company'][0].upper() if row['company'] else 'X'}</div>", unsafe_allow_html=True)
         with col_details:
             title_html = f"<h3 style='margin-bottom:0px; color:#ffffff;'>{row['title']}</h3>"
-            if is_expired: 
-                title_html = f"<h3 style='margin-bottom:0px; color:#ff4757;'>[EXPIRED] {row['title']}</h3>"
+            if is_expired: title_html = f"<h3 style='margin-bottom:0px; color:#ff4757;'>[EXPIRED] {row['title']}</h3>"
             st.markdown(title_html, unsafe_allow_html=True)
             st.markdown(f"<p style='color:#8892b0; font-size: 1.1rem; margin-top: 5px;'>{row['company']}</p>", unsafe_allow_html=True)
             sal = f"{row['salary_amount']} / {row['salary_type']}" if row['salary_amount'] != "N/A" else "Unlisted"
-            st.markdown(f"""
-                <span class='tech-tag'>LOC: {row['location']}</span>
-                <span class='tech-tag'>PAY: {sal}</span>
-                <span class='tech-tag'>SYS: {row['source']}</span>
-            """, unsafe_allow_html=True)
+            date_str = str(row['date_added'])[:10]
+            st.markdown(f"<span class='tech-tag'>LOC: {row['location']}</span> <span class='tech-tag'>PAY: {sal}</span> <span class='tech-tag'>DATE: {date_str}</span>", unsafe_allow_html=True)
         with col_action:
             st.write("")
             st.link_button("INITIATE UPLINK", row['url'], use_container_width=True, type="primary")
@@ -195,6 +182,7 @@ if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
 if 'user_role' not in st.session_state: st.session_state['user_role'] = None
 if 'user_name' not in st.session_state: st.session_state['user_name'] = ""
 
+# Process Google Login First
 if not st.session_state['logged_in'] and 'code' in st.query_params:
     with st.spinner("Decrypting neural pathways..."):
         code = st.query_params['code']
@@ -209,26 +197,50 @@ if not st.session_state['logged_in'] and 'code' in st.query_params:
 
 is_maint, res_time, maint_msg, is_warn, warn_msg = get_sys_status()
 
+# 🛑 MAINTENANCE LOCKOUT LOGIC 🛑
 if is_maint == 1 and st.session_state['user_role'] != "admin":
-    auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}&scope=openid%20email%20profile"
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        st.markdown(f"""
-        <div class="login-wrapper">
-            <div class="login-card maintenance-card">
-                <p class="system-status system-status-offline">[ SYSTEM CRITICAL: OFFLINE FOR UPGRADES ]</p>
-                <div class="app-title-large app-title-maintenance">NEURAL</div>
-                <div class="app-title-large app-title-maintenance" style="font-size: 2.5rem; margin-bottom: 20px;">// LOCKED</div>
-                <p style="color: #8892b0; font-size: 1.1rem; line-height: 1.5; margin-bottom: 10px;">{maint_msg}</p>
-                <p style="color: #ff4757; font-family: 'Share Tech Mono', monospace; font-size: 1.2rem; margin-bottom: 30px;">
-                    EXPECTED UPLINK RESTORED: <br> {res_time}
-                </p>
-                <a href="{auth_url}" class="cyber-btn admin-bypass-btn" target="_blank">STAFF LOGIN</a>
+    
+    # 🤡 THE MEME TRAP: If a normal user managed to log in during lockdown!
+    if st.session_state['logged_in']:
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            st.markdown("""
+            <div class="login-wrapper">
+                <div class="login-card maintenance-card">
+                    <h2 style="color: #ff4757; font-weight: 900; margin-bottom: 20px;">[ INTRUDER DETECTED ]</h2>
+                    <img src="https://media.giphy.com/media/JIX9t2j0ZTN9S/giphy.gif" style="width: 100%; border-radius: 10px; border: 2px solid #ff4757; margin-bottom: 20px;">
+                    <h3 style="color: #00ffcc; font-family: 'Share Tech Mono', monospace; font-style: italic;">"Good try brother let me fix website for you"</h3>
+                </div>
             </div>
-        </div>
-        """, unsafe_allow_html=True)
-    st.stop() 
+            """, unsafe_allow_html=True)
+            st.write("")
+            if st.button("RETREAT (Disconnect)"):
+                st.session_state.update({'logged_in': False, 'user_role': None, 'user_name': ""})
+                st.rerun()
+        st.stop()
+        
+    # Standard Red Lockdown Screen (If not logged in yet)
+    else:
+        auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}&scope=openid%20email%20profile"
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            st.markdown(f"""
+            <div class="login-wrapper">
+                <div class="login-card maintenance-card">
+                    <p class="system-status system-status-offline">[ SYSTEM CRITICAL: OFFLINE FOR UPGRADES ]</p>
+                    <div class="app-title-large app-title-maintenance">NEURAL</div>
+                    <div class="app-title-large app-title-maintenance" style="font-size: 2.5rem; margin-bottom: 20px;">// LOCKED</div>
+                    <p style="color: #8892b0; font-size: 1.1rem; line-height: 1.5; margin-bottom: 10px;">{maint_msg}</p>
+                    <p style="color: #ff4757; font-family: 'Share Tech Mono', monospace; font-size: 1.2rem; margin-bottom: 30px;">
+                        EXPECTED UPLINK RESTORED: <br> {res_time}
+                    </p>
+                    <a href="{auth_url}" class="cyber-btn admin-bypass-btn" target="_blank">STAFF LOGIN</a>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+        st.stop() 
 
+# --- NORMAL LOGIN SCREEN ---
 if not st.session_state['logged_in']:
     auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}&scope=openid%20email%20profile"
     col1, col2, col3 = st.columns([1, 2, 1])
@@ -267,11 +279,8 @@ else:
     conn = sqlite3.connect(DB_PATH)
     df = pd.read_sql_query("SELECT * FROM jobs", conn)
     conn.close()
-    
-    if 'date_added' in df.columns: 
-        df['date_added'] = pd.to_datetime(df['date_added'], errors='coerce').fillna(pd.to_datetime('today'))
-    else: 
-        df['date_added'] = pd.to_datetime('today')
+    if 'date_added' in df.columns: df['date_added'] = pd.to_datetime(df['date_added'], errors='coerce').fillna(pd.to_datetime('today'))
+    else: df['date_added'] = pd.to_datetime('today')
 
     # --- ADMIN VIEW ---
     if st.session_state['user_role'] == "admin":
@@ -358,12 +367,10 @@ else:
                         st.success("Injection Successful.")
                         st.rerun()
         with tab3:
-            if df.empty: 
-                st.info("Grid empty. Run global scrape.")
+            if df.empty: st.info("Grid empty. Run global scrape.")
             else:
                 df = df.sort_values(by='date_added', ascending=False)
-                for _, row in df.iterrows(): 
-                    display_job_card(row, is_admin=True)
+                for _, row in df.iterrows(): display_job_card(row, is_admin=True)
 
     # --- SEEKER VIEW ---
     elif st.session_state['user_role'] == "seeker":
@@ -371,26 +378,23 @@ else:
         df_seeker = df[df['date_added'] >= thirty_days_ago].copy()
 
         tab_browse, tab_match = st.tabs(["[ GRID SEARCH ]", "[ AI OVERRIDE ]"])
-        
         with tab_browse:
-            search = st.text_input("QUERY DATABASE...", placeholder="Enter parameters: Python, Anthropic, LLM...")
+            col_search, col_time = st.columns([3, 1])
+            with col_search: search = st.text_input("QUERY DATABASE...", placeholder="Parameters: Python, OpenAI, Remote...")
+            with col_time: time_filter = st.selectbox("TIME RANGE", ["All Active", "Past 24 Hours", "Past 7 Days"])
             st.write("---")
-            
-            if search: 
-                df_seeker = df_seeker[df_seeker['title'].str.contains(search, case=False) | df_seeker['company'].str.contains(search, case=False)]
+            if time_filter == "Past 24 Hours": df_seeker = df_seeker[df_seeker['date_added'] >= (pd.to_datetime('today') - timedelta(days=1))]
+            elif time_filter == "Past 7 Days": df_seeker = df_seeker[df_seeker['date_added'] >= (pd.to_datetime('today') - timedelta(days=7))]
+            if search: df_seeker = df_seeker[df_seeker['title'].str.contains(search, case=False) | df_seeker['company'].str.contains(search, case=False)]
             
             df_seeker = df_seeker.sort_values(by='date_added', ascending=False)
-            
-            if df_seeker.empty: 
-                st.info("No nodes match parameters.")
+            if df_seeker.empty: st.info("No nodes match parameters.")
             else:
-                for _, row in df_seeker.iterrows(): 
-                    display_job_card(row, is_admin=False)
+                for _, row in df_seeker.iterrows(): display_job_card(row, is_admin=False)
                 
         with tab_match:
             with st.container(border=True):
                 uploaded_file = st.file_uploader("UPLOAD DATAPACK (PDF)", type="pdf")
-                
             if uploaded_file:
                 with st.spinner("Running neural analysis..."):
                     skills = [s for s in ['python', 'sql', 'react', 'java', 'ai', 'data', 'llm', 'machine learning', 'pytorch'] if s in extract_text_from_pdf(uploaded_file)]
@@ -398,12 +402,8 @@ else:
                         st.success(f"**Parameters Found:** {', '.join(skills).title()}")
                         st.write("---")
                         matched = df_seeker[df_seeker['title'].str.lower().str.contains('|'.join(skills))]
-                        
                         if not matched.empty:
                             st.markdown(f"#### >>> MATCHES FOUND ({len(matched)}):")
-                            for _, row in matched.head(10).iterrows(): 
-                                display_job_card(row, is_admin=False)
-                        else: 
-                            st.info("No matching active nodes currently active.")
-                    else: 
-                        st.warning("Analysis failed. No valid parameters detected.")
+                            for _, row in matched.head(10).iterrows(): display_job_card(row, is_admin=False)
+                        else: st.info("No matching active nodes currently active.")
+                    else: st.warning("Analysis failed. No valid parameters detected.")
