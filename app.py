@@ -6,6 +6,7 @@ import os
 import PyPDF2
 import uuid
 from bs4 import BeautifulSoup
+import feedparser
 from datetime import datetime, timedelta
 
 # ==========================================
@@ -58,7 +59,7 @@ def apply_futuristic_css():
 apply_futuristic_css()
 
 # ==========================================
-# 3. DATABASE SETUP
+# 3. DATABASE SETUP 
 # ==========================================
 USER_HOME = os.path.expanduser("~") 
 DB_PATH = os.path.join(USER_HOME, 'ai_jobs_production.db')
@@ -72,11 +73,13 @@ def init_db():
     
     c.execute('''CREATE TABLE IF NOT EXISTS sys_settings (id INTEGER PRIMARY KEY, is_maintenance INTEGER, resume_time TEXT, message TEXT)''')
     c.execute("INSERT OR IGNORE INTO sys_settings (id, is_maintenance, resume_time, message) VALUES (1, 0, '', '')")
-    
     try: c.execute("ALTER TABLE sys_settings ADD COLUMN is_warning INTEGER DEFAULT 0")
     except sqlite3.OperationalError: pass
     try: c.execute("ALTER TABLE sys_settings ADD COLUMN warning_msg TEXT DEFAULT ''")
     except sqlite3.OperationalError: pass
+
+    # Table for tracking saved/bookmarked jobs
+    c.execute('''CREATE TABLE IF NOT EXISTS saved_jobs (user_email TEXT, job_id TEXT, PRIMARY KEY (user_email, job_id))''')
 
     conn.commit()
     conn.close()
@@ -102,14 +105,56 @@ def get_sys_status():
             conn.commit()
             conn.close()
             return (0, "", "", 0, "")
-            
     return (is_maint, res_time, msg, is_warn, warn_msg)
+
+def clean_html(raw_html):
+    if not raw_html: return "No details."
+    return BeautifulSoup(raw_html, "html.parser").get_text(separator="\n").strip()
+
+def run_auto_job_engine():
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    new_count = 0
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    keywords = ['ai', 'machine learning', 'data', 'llm', 'python', 'artificial intelligence', 'prompt', 'deep learning', 'nlp', 'openai', 'pytorch']
+    
+    api_urls = ["https://remotive.com/api/remote-jobs?category=data", "https://remotive.com/api/remote-jobs?category=software-dev"]
+    for url in api_urls:
+        try:
+            req = requests.get(url)
+            for job in req.json().get('jobs', []):
+                if any(word in job.get('title', '').lower() for word in keywords):
+                    try:
+                        c.execute("""INSERT INTO jobs (id, title, company, location, url, source, description, salary_amount, salary_type, date_added) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                                  (str(job['id']), job['title'], job['company_name'], job['candidate_required_location'], job['url'], 'Remotive API', clean_html(job.get('description', ''))[:1500] + "...", job.get('salary', 'N/A') or 'N/A', 'Yearly', today_str))
+                        new_count += 1
+                    except sqlite3.IntegrityError: pass
+        except: pass
+
+    try:
+        feed = feedparser.parse("https://weworkremotely.com/categories/remote-programming-jobs.rss")
+        for entry in feed.entries:
+            title = entry.title
+            if any(word in title.lower() for word in keywords):
+                try:
+                    job_id = "WWR_" + str(uuid.uuid5(uuid.NAMESPACE_URL, entry.link))[:8]
+                    company = title.split(":")[0] if ":" in title else "Unknown"
+                    job_title = title.split(":")[1] if ":" in title else title
+                    c.execute("""INSERT INTO jobs (id, title, company, location, url, source, description, salary_amount, salary_type, date_added) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                              (job_id, job_title.strip(), company.strip(), "Remote", entry.link, 'WWR RSS', clean_html(entry.description)[:1500] + "...", 'N/A', 'Unspecified', today_str))
+                    new_count += 1
+                except sqlite3.IntegrityError: pass
+    except: pass
+
+    conn.commit()
+    conn.close()
+    return new_count
 
 def extract_text_from_pdf(uploaded_file):
     try: return "".join([page.extract_text() + " " for page in PyPDF2.PdfReader(uploaded_file).pages]).lower()
     except: return ""
 
-def display_job_card(row, is_admin=False):
+def display_job_card(row, is_admin=False, user_email=None, is_saved=False):
     is_expired = False
     if is_admin and pd.to_datetime(row['date_added']) < (pd.to_datetime('today') - timedelta(days=30)):
         is_expired = True
@@ -124,11 +169,9 @@ def display_job_card(row, is_admin=False):
             st.markdown(title_html, unsafe_allow_html=True)
             st.markdown(f"<p style='color:#8892b0; font-size: 1.1rem; margin-top: 5px;'>{row['company']}</p>", unsafe_allow_html=True)
             
-            # --- SALARY FORMATTING ---
             sal_val = str(row['salary_amount']).strip()
             if sal_val and sal_val.lower() not in ["n/a", ""]:
-                if not sal_val.startswith("$"):
-                    sal_val = "$" + sal_val
+                if not sal_val.startswith("$"): sal_val = "$" + sal_val
                 sal = f"{sal_val} / {row['salary_type']}"
             else:
                 sal = "Unlisted"
@@ -138,6 +181,24 @@ def display_job_card(row, is_admin=False):
         with col_action:
             st.write("")
             st.link_button("INITIATE UPLINK", row['url'], use_container_width=True, type="primary")
+            
+            # --- SAVE TO FAVORITES BUTTON ---
+            if not is_admin and user_email:
+                if is_saved:
+                    if st.button("❌ REMOVE", key=f"unsave_{row['id']}", use_container_width=True):
+                        conn = sqlite3.connect(DB_PATH)
+                        conn.cursor().execute("DELETE FROM saved_jobs WHERE user_email=? AND job_id=?", (user_email, row['id']))
+                        conn.commit()
+                        conn.close()
+                        st.rerun()
+                else:
+                    if st.button("⭐ SAVE NODE", key=f"save_{row['id']}", use_container_width=True):
+                        conn = sqlite3.connect(DB_PATH)
+                        conn.cursor().execute("INSERT OR IGNORE INTO saved_jobs (user_email, job_id) VALUES (?, ?)", (user_email, row['id']))
+                        conn.commit()
+                        conn.close()
+                        st.rerun()
+
         with st.expander("DECRYPT DATAFILE (View Description)"):
             st.write(row['description'])
 
@@ -147,15 +208,16 @@ def display_job_card(row, is_admin=False):
 if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
 if 'user_role' not in st.session_state: st.session_state['user_role'] = None
 if 'user_name' not in st.session_state: st.session_state['user_name'] = ""
+if 'user_email' not in st.session_state: st.session_state['user_email'] = "" 
 
-# Process Google Login First
 if not st.session_state['logged_in'] and 'code' in st.query_params:
     with st.spinner("Decrypting neural pathways..."):
         code = st.query_params['code']
         res = requests.post("https://oauth2.googleapis.com/token", data={"code": code, "client_id": CLIENT_ID, "client_secret": CLIENT_SECRET, "redirect_uri": REDIRECT_URI, "grant_type": "authorization_code"})
         if res.status_code == 200:
             user_data = requests.get("https://www.googleapis.com/oauth2/v1/userinfo", headers={"Authorization": f"Bearer {res.json().get('access_token')}"}).json()
-            st.session_state.update({'logged_in': True, 'user_name': user_data.get("name"), 'user_role': "admin" if user_data.get("email") in ADMIN_EMAILS else "seeker"})
+            email = user_data.get("email")
+            st.session_state.update({'logged_in': True, 'user_name': user_data.get("name"), 'user_email': email, 'user_role': "admin" if email in ADMIN_EMAILS else "seeker"})
             st.query_params.clear()
             st.rerun()
         else: 
@@ -165,8 +227,6 @@ is_maint, res_time, maint_msg, is_warn, warn_msg = get_sys_status()
 
 # 🛑 MAINTENANCE LOCKOUT LOGIC 🛑
 if is_maint == 1 and st.session_state['user_role'] != "admin":
-    
-    # 🤡 THE MEME TRAP
     if st.session_state['logged_in']:
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
@@ -181,11 +241,9 @@ if is_maint == 1 and st.session_state['user_role'] != "admin":
             """, unsafe_allow_html=True)
             st.write("")
             if st.button("RETREAT (Disconnect)", use_container_width=True):
-                st.session_state.update({'logged_in': False, 'user_role': None, 'user_name': ""})
+                st.session_state.update({'logged_in': False, 'user_role': None, 'user_name': "", 'user_email': ""})
                 st.rerun()
         st.stop()
-        
-    # Standard Red Lockdown Screen
     else:
         auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}&scope=openid%20email%20profile"
         col1, col2, col3 = st.columns([1, 2, 1])
@@ -197,9 +255,7 @@ if is_maint == 1 and st.session_state['user_role'] != "admin":
                     <div class="app-title-large app-title-maintenance">NEURAL</div>
                     <div class="app-title-large app-title-maintenance" style="font-size: 2.5rem; margin-bottom: 20px;">// LOCKED</div>
                     <p style="color: #8892b0; font-size: 1.1rem; line-height: 1.5; margin-bottom: 10px;">{maint_msg}</p>
-                    <p style="color: #ff4757; font-family: 'Share Tech Mono', monospace; font-size: 1.2rem; margin-bottom: 30px;">
-                        EXPECTED UPLINK RESTORED: <br> {res_time}
-                    </p>
+                    <p style="color: #ff4757; font-family: 'Share Tech Mono', monospace; font-size: 1.2rem; margin-bottom: 30px;">EXPECTED UPLINK RESTORED: <br> {res_time}</p>
                     <a href="{auth_url}" class="cyber-btn admin-bypass-btn" target="_blank">STAFF LOGIN</a>
                 </div>
             </div>
@@ -217,9 +273,7 @@ if not st.session_state['logged_in']:
                 <p class="system-status">[ SYSTEM STATUS: SECURE & ONLINE ]</p>
                 <div class="app-title-large">NEURAL</div>
                 <div class="app-title-large" style="font-size: 2.5rem; margin-bottom: 20px;">// TALENT GRID</div>
-                <p style="color: #8892b0; font-size: 1.1rem; line-height: 1.5; margin-bottom: 30px;">
-                    The premier decentralized manual hub for Artificial Intelligence, Large Language Models, and Data Science operatives.
-                </p>
+                <p style="color: #8892b0; font-size: 1.1rem; line-height: 1.5; margin-bottom: 30px;">The premier decentralized manual hub for Artificial Intelligence, Large Language Models, and Data Science operatives.</p>
                 <a href="{auth_url}" class="cyber-btn" target="_blank">CONNECT DATASTREAM</a>
             </div>
         </div>
@@ -229,8 +283,7 @@ if not st.session_state['logged_in']:
 # 6. MAIN APP DASHBOARDS
 # ==========================================
 else:
-    if is_warn == 1:
-        st.markdown(f"<div class='cyber-warning-banner'>⚠️ SYSTEM NOTICE: {warn_msg}</div>", unsafe_allow_html=True)
+    if is_warn == 1: st.markdown(f"<div class='cyber-warning-banner'>⚠️ SYSTEM NOTICE: {warn_msg}</div>", unsafe_allow_html=True)
 
     col_logo, col_logout = st.columns([8, 1])
     with col_logo: 
@@ -239,49 +292,38 @@ else:
     with col_logout:
         st.write("") 
         if st.button("DISCONNECT", use_container_width=True):
-            st.session_state.update({'logged_in': False, 'user_role': None, 'user_name': ""})
+            st.session_state.update({'logged_in': False, 'user_role': None, 'user_name': "", "user_email": ""})
             st.rerun()
 
     conn = sqlite3.connect(DB_PATH)
     df = pd.read_sql_query("SELECT * FROM jobs", conn)
     conn.close()
-    
-    if 'date_added' in df.columns: 
-        df['date_added'] = pd.to_datetime(df['date_added'], errors='coerce').fillna(pd.to_datetime('today'))
-    else: 
-        df['date_added'] = pd.to_datetime('today')
+    if 'date_added' in df.columns: df['date_added'] = pd.to_datetime(df['date_added'], errors='coerce').fillna(pd.to_datetime('today'))
+    else: df['date_added'] = pd.to_datetime('today')
 
     # --- ADMIN VIEW ---
     if st.session_state['user_role'] == "admin":
         st.markdown("### [ GRID METRICS ]")
-        
-        # Calculate active vs expired
         thirty_days_ago = pd.to_datetime('today') - timedelta(days=30)
         active_nodes = len(df[df['date_added'] >= thirty_days_ago]) if not df.empty else 0
-        expired_nodes = len(df) - active_nodes
         
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("TOTAL DATANODES", len(df))
         m2.metric("ACTIVE NODES (30D)", active_nodes)
-        m3.metric("EXPIRED NODES", expired_nodes)
+        m3.metric("EXPIRED NODES", len(df) - active_nodes)
         
-        if is_maint == 1:
-            m4.metric("SYSTEM STATUS", "MAINTENANCE")
-            st.error(f"⚠️ SITE IS OFFLINE FOR USERS. Auto-resumes at: {res_time}")
-        elif is_warn == 1:
-            m4.metric("SYSTEM STATUS", "WARNING ACTIVE")
-        else:
-            m4.metric("SYSTEM STATUS", "ONLINE")
+        if is_maint == 1: m4.metric("SYSTEM STATUS", "MAINTENANCE")
+        elif is_warn == 1: m4.metric("SYSTEM STATUS", "WARNING ACTIVE")
+        else: m4.metric("SYSTEM STATUS", "ONLINE")
             
         st.write("---")
-
         tab1, tab2, tab3 = st.tabs(["[ ➕ INJECT DATA ]", "[ 📋 NODE LIST ]", "[ ⚙️ SYS CONTROLS ]"])
         
         with tab3:
             st.markdown("#### Stage 1: Global Broadcast (Warning)")
             if is_warn == 0:
                 with st.form("warn_form"):
-                    w_msg = st.text_input("Warning Message", value="System maintenance will begin in 15 minutes. Please save your work.")
+                    w_msg = st.text_input("Warning Message", value="System maintenance will begin in 15 minutes.")
                     if st.form_submit_button("📢 BROADCAST WARNING"):
                         conn = sqlite3.connect(DB_PATH)
                         conn.cursor().execute("UPDATE sys_settings SET is_warning=?, warning_msg=? WHERE id=1", (1, w_msg))
@@ -301,7 +343,7 @@ else:
             if is_maint == 0:
                 with st.form("maint_form"):
                     downtime_hours = st.number_input("Hours of Downtime", min_value=1, max_value=48, value=2)
-                    m_msg = st.text_input("Lockdown Message", value="We are upgrading the core neural network. Stand by.")
+                    m_msg = st.text_input("Lockdown Message", value="Upgrading core neural network. Stand by.")
                     if st.form_submit_button("🚨 INITIATE LOCKDOWN", type="primary"):
                         resume_calc = (datetime.now() + timedelta(hours=downtime_hours)).strftime("%Y-%m-%d %H:%M:%S")
                         conn = sqlite3.connect(DB_PATH)
@@ -322,20 +364,13 @@ else:
                 st.markdown("#### INJECT MANUAL NODE")
                 m_title = st.text_input("Job Title")
                 m_company = st.text_input("Entity / Company")
-                
-                # Dynamic Remote Toggle
                 m_is_remote = st.radio("Is this a Remote position?", ["Yes", "No"], horizontal=True)
-                if m_is_remote == "No":
-                    m_location = st.text_input("Specify Location (e.g. San Francisco, CA / On-site)")
-                else:
-                    m_location = "Remote"
-                
+                m_location = st.text_input("Specify Location") if m_is_remote == "No" else "Remote"
                 c1, c2 = st.columns(2)
                 with c1: m_sal_amount = st.text_input("Compensation (in USD $)")
                 with c2: m_sal_type = st.selectbox("Cycle", ["Yearly", "Monthly", "Hourly", "Unspecified"])
                 m_url = st.text_input("Uplink URL")
                 m_desc = st.text_area("File Contents")
-                
                 if st.button("INJECT NODE", type="primary", use_container_width=True):
                     if m_title and m_company and m_url:
                         conn = sqlite3.connect(DB_PATH)
@@ -346,23 +381,27 @@ else:
                         conn.close()
                         st.success("Injection Successful.")
                         st.rerun()
-                    else:
-                        st.error("SYSTEM ERROR: Title, Company, and URL are required.")
+                    else: st.error("SYSTEM ERROR: Title, Company, and URL are required.")
                         
         with tab2:
-            if df.empty: 
-                st.info("Grid empty. Inject new nodes.")
+            if df.empty: st.info("Grid empty. Inject new nodes.")
             else:
                 df = df.sort_values(by='date_added', ascending=False)
-                for _, row in df.iterrows(): 
-                    display_job_card(row, is_admin=True)
+                for _, row in df.iterrows(): display_job_card(row, is_admin=True)
 
     # --- SEEKER VIEW ---
     elif st.session_state['user_role'] == "seeker":
+        user_email = st.session_state['user_email']
         thirty_days_ago = pd.to_datetime('today') - timedelta(days=30)
         df_seeker = df[df['date_added'] >= thirty_days_ago].copy()
 
-        tab_browse, tab_match = st.tabs(["[ GRID SEARCH ]", "[ AI OVERRIDE ]"])
+        # Fetch Saved Jobs for this user
+        conn = sqlite3.connect(DB_PATH)
+        saved_job_ids = [r[0] for r in conn.execute("SELECT job_id FROM saved_jobs WHERE user_email=?", (user_email,)).fetchall()]
+        conn.close()
+
+        tab_browse, tab_saved, tab_match = st.tabs(["[ GRID SEARCH ]", "[ ⭐ SAVED NODES ]", "[ AI OVERRIDE ]"])
+        
         with tab_browse:
             col_search, col_time = st.columns([3, 1])
             with col_search: search = st.text_input("QUERY DATABASE...", placeholder="Parameters: Python, OpenAI, Remote...")
@@ -375,8 +414,16 @@ else:
             df_seeker = df_seeker.sort_values(by='date_added', ascending=False)
             if df_seeker.empty: st.info("No nodes match parameters.")
             else:
-                for _, row in df_seeker.iterrows(): display_job_card(row, is_admin=False)
-                
+                for _, row in df_seeker.iterrows(): display_job_card(row, is_admin=False, user_email=user_email, is_saved=(row['id'] in saved_job_ids))
+        
+        with tab_saved:
+            st.markdown("#### YOUR ENCRYPTED FAVORITES")
+            df_saved = df_seeker[df_seeker['id'].isin(saved_job_ids)]
+            if df_saved.empty:
+                st.info("You have not saved any datanodes yet. Click ⭐ SAVE NODE on the main grid.")
+            else:
+                for _, row in df_saved.iterrows(): display_job_card(row, is_admin=False, user_email=user_email, is_saved=True)
+
         with tab_match:
             with st.container(border=True):
                 uploaded_file = st.file_uploader("UPLOAD DATAPACK (PDF)", type="pdf")
@@ -389,6 +436,6 @@ else:
                         matched = df_seeker[df_seeker['title'].str.lower().str.contains('|'.join(skills))]
                         if not matched.empty:
                             st.markdown(f"#### >>> MATCHES FOUND ({len(matched)}):")
-                            for _, row in matched.head(10).iterrows(): display_job_card(row, is_admin=False)
+                            for _, row in matched.head(10).iterrows(): display_job_card(row, is_admin=False, user_email=user_email, is_saved=(row['id'] in saved_job_ids))
                         else: st.info("No matching active nodes currently active.")
                     else: st.warning("Analysis failed. No valid parameters detected.")
