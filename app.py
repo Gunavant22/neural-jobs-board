@@ -5,8 +5,6 @@ import pandas as pd
 import os
 import PyPDF2
 import uuid
-from bs4 import BeautifulSoup
-import feedparser
 from datetime import datetime, timedelta
 
 # ==========================================
@@ -59,7 +57,7 @@ def apply_futuristic_css():
 apply_futuristic_css()
 
 # ==========================================
-# 3. DATABASE SETUP
+# 3. DATABASE SETUP 
 # ==========================================
 USER_HOME = os.path.expanduser("~") 
 DB_PATH = os.path.join(USER_HOME, 'ai_jobs_production.db')
@@ -85,7 +83,7 @@ def init_db():
 init_db()
 
 # ==========================================
-# 4. ENGINE & HELPER FUNCTIONS
+# 4. HELPER FUNCTIONS
 # ==========================================
 def get_sys_status():
     conn = sqlite3.connect(DB_PATH)
@@ -105,49 +103,6 @@ def get_sys_status():
             return (0, "", "", 0, "")
     return (is_maint, res_time, msg, is_warn, warn_msg)
 
-def clean_html(raw_html):
-    if not raw_html: return "No details."
-    return BeautifulSoup(raw_html, "html.parser").get_text(separator="\n").strip()
-
-def run_auto_job_engine():
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    new_count = 0
-    today_str = datetime.now().strftime("%Y-%m-%d")
-    keywords = ['ai', 'machine learning', 'data', 'llm', 'python', 'artificial intelligence', 'prompt', 'deep learning', 'nlp', 'openai', 'pytorch']
-    
-    api_urls = ["https://remotive.com/api/remote-jobs?category=data", "https://remotive.com/api/remote-jobs?category=software-dev"]
-    for url in api_urls:
-        try:
-            req = requests.get(url)
-            for job in req.json().get('jobs', []):
-                if any(word in job.get('title', '').lower() for word in keywords):
-                    try:
-                        c.execute("""INSERT INTO jobs (id, title, company, location, url, source, description, salary_amount, salary_type, date_added) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                                  (str(job['id']), job['title'], job['company_name'], job['candidate_required_location'], job['url'], 'Remotive API', clean_html(job.get('description', ''))[:1500] + "...", job.get('salary', 'N/A') or 'N/A', 'Yearly', today_str))
-                        new_count += 1
-                    except sqlite3.IntegrityError: pass
-        except: pass
-
-    try:
-        feed = feedparser.parse("https://weworkremotely.com/categories/remote-programming-jobs.rss")
-        for entry in feed.entries:
-            title = entry.title
-            if any(word in title.lower() for word in keywords):
-                try:
-                    job_id = "WWR_" + str(uuid.uuid5(uuid.NAMESPACE_URL, entry.link))[:8]
-                    company = title.split(":")[0] if ":" in title else "Unknown"
-                    job_title = title.split(":")[1] if ":" in title else title
-                    c.execute("""INSERT INTO jobs (id, title, company, location, url, source, description, salary_amount, salary_type, date_added) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                              (job_id, job_title.strip(), company.strip(), "Remote", entry.link, 'WWR RSS', clean_html(entry.description)[:1500] + "...", 'N/A', 'Unspecified', today_str))
-                    new_count += 1
-                except sqlite3.IntegrityError: pass
-    except: pass
-
-    conn.commit()
-    conn.close()
-    return new_count
-
 def extract_text_from_pdf(uploaded_file):
     try: return "".join([page.extract_text() + " " for page in PyPDF2.PdfReader(uploaded_file).pages]).lower()
     except: return ""
@@ -166,7 +121,17 @@ def display_job_card(row, is_admin=False):
             if is_expired: title_html = f"<h3 style='margin-bottom:0px; color:#ff4757;'>[EXPIRED] {row['title']}</h3>"
             st.markdown(title_html, unsafe_allow_html=True)
             st.markdown(f"<p style='color:#8892b0; font-size: 1.1rem; margin-top: 5px;'>{row['company']}</p>", unsafe_allow_html=True)
-            sal = f"{row['salary_amount']} / {row['salary_type']}" if row['salary_amount'] != "N/A" else "Unlisted"
+            
+            # --- SALARY FORMATTING (DOLLAR SIGN FIX) ---
+            sal_val = str(row['salary_amount']).strip()
+            if sal_val and sal_val.lower() not in ["n/a", ""]:
+                # Add $ if it's missing
+                if not sal_val.startswith("$"):
+                    sal_val = "$" + sal_val
+                sal = f"{sal_val} / {row['salary_type']}"
+            else:
+                sal = "Unlisted"
+            
             date_str = str(row['date_added'])[:10]
             st.markdown(f"<span class='tech-tag'>LOC: {row['location']}</span> <span class='tech-tag'>PAY: {sal}</span> <span class='tech-tag'>DATE: {date_str}</span>", unsafe_allow_html=True)
         with col_action:
@@ -252,7 +217,7 @@ if not st.session_state['logged_in']:
                 <div class="app-title-large">NEURAL</div>
                 <div class="app-title-large" style="font-size: 2.5rem; margin-bottom: 20px;">// TALENT GRID</div>
                 <p style="color: #8892b0; font-size: 1.1rem; line-height: 1.5; margin-bottom: 30px;">
-                    The premier decentralized hub for Artificial Intelligence, Large Language Models, and Data Science operatives.
+                    The premier decentralized manual hub for Artificial Intelligence, Large Language Models, and Data Science operatives.
                 </p>
                 <a href="{auth_url}" class="cyber-btn" target="_blank">CONNECT DATASTREAM</a>
             </div>
@@ -285,10 +250,16 @@ else:
     # --- ADMIN VIEW ---
     if st.session_state['user_role'] == "admin":
         st.markdown("### [ GRID METRICS ]")
+        
+        # Calculate active vs expired for manual board
+        thirty_days_ago = pd.to_datetime('today') - timedelta(days=30)
+        active_nodes = len(df[df['date_added'] >= thirty_days_ago]) if not df.empty else 0
+        expired_nodes = len(df) - active_nodes
+        
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("TOTAL DATANODES", len(df))
-        m2.metric("API FEEDS", len(df[df['source'] != 'Manual']) if not df.empty else 0)
-        m3.metric("MANUAL INSERTS", len(df[df['source'] == 'Manual']) if not df.empty else 0)
+        m2.metric("ACTIVE NODES (30D)", active_nodes)
+        m3.metric("EXPIRED NODES", expired_nodes)
         
         if is_maint == 1:
             m4.metric("SYSTEM STATUS", "MAINTENANCE")
@@ -300,9 +271,9 @@ else:
             
         st.write("---")
 
-        tab1, tab2, tab3, tab4 = st.tabs(["[ RUN ENGINE ]", "[ INJECT DATA ]", "[ NODE LIST ]", "[ ⚙️ SYS CONTROLS ]"])
+        tab1, tab2, tab3 = st.tabs(["[ ➕ INJECT DATA ]", "[ 📋 NODE LIST ]", "[ ⚙️ SYS CONTROLS ]"])
         
-        with tab4:
+        with tab3:
             st.markdown("#### Stage 1: Global Broadcast (Warning)")
             if is_warn == 0:
                 with st.form("warn_form"):
@@ -343,17 +314,12 @@ else:
                     st.rerun()
 
         with tab1:
-            if st.button(">>> INITIATE GLOBAL SCRAPE", type="primary", use_container_width=True):
-                with st.spinner("Extracting web data..."):
-                    st.success(f"Successfully extracted {run_auto_job_engine()} new nodes!")
-                    st.rerun()
-        with tab2:
             with st.container(border=True):
                 st.markdown("#### INJECT MANUAL NODE")
                 m_title = st.text_input("Job Title")
                 m_company = st.text_input("Entity / Company")
                 
-                # --- DYNAMIC REMOTE TOGGLE ---
+                # Dynamic Remote Toggle
                 m_is_remote = st.radio("Is this a Remote position?", ["Yes", "No"], horizontal=True)
                 if m_is_remote == "No":
                     m_location = st.text_input("Specify Location (e.g. San Francisco, CA / On-site)")
@@ -361,7 +327,7 @@ else:
                     m_location = "Remote"
                 
                 c1, c2 = st.columns(2)
-                with c1: m_sal_amount = st.text_input("Compensation")
+                with c1: m_sal_amount = st.text_input("Compensation (in USD $)")
                 with c2: m_sal_type = st.selectbox("Cycle", ["Yearly", "Monthly", "Hourly", "Unspecified"])
                 m_url = st.text_input("Uplink URL")
                 m_desc = st.text_area("File Contents")
@@ -379,8 +345,8 @@ else:
                     else:
                         st.error("SYSTEM ERROR: Title, Company, and URL are required.")
                         
-        with tab3:
-            if df.empty: st.info("Grid empty. Run global scrape.")
+        with tab2:
+            if df.empty: st.info("Grid empty. Inject new nodes.")
             else:
                 df = df.sort_values(by='date_added', ascending=False)
                 for _, row in df.iterrows(): display_job_card(row, is_admin=True)
@@ -410,7 +376,7 @@ else:
                 uploaded_file = st.file_uploader("UPLOAD DATAPACK (PDF)", type="pdf")
             if uploaded_file:
                 with st.spinner("Running neural analysis..."):
-                    skills = [s for s in ['python', 'sql', 'react', 'java', 'ai', 'data', 'llm', 'machine learning', 'pytorch'] if s in extract_text_from_pdf(uploaded_file)]
+                    skills = [s for s in ['python', 'sql', 'react', 'java', 'ai', 'data', 'llm', 'machine learning', 'pytorch', 'prompt engineering'] if s in extract_text_from_pdf(uploaded_file)]
                     if skills:
                         st.success(f"**Parameters Found:** {', '.join(skills).title()}")
                         st.write("---")
