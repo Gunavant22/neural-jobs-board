@@ -155,7 +155,8 @@ def extract_text_from_pdf(uploaded_file):
 
 def display_job_card(row, is_admin=False):
     is_expired = False
-    if is_admin and row['date_added'] < str(datetime.now() - timedelta(days=30))[:10]:
+    # FIX: Safely convert both sides to Pandas Datetime objects before comparing
+    if is_admin and pd.to_datetime(row['date_added']) < (pd.to_datetime('today') - timedelta(days=30)):
         is_expired = True
 
     with st.container(border=True):
