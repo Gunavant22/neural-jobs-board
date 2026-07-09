@@ -8,6 +8,7 @@ import uuid
 import re
 from bs4 import BeautifulSoup
 import feedparser
+from datetime import datetime, timedelta
 
 # ==========================================
 # 1. PRODUCTION CONFIGURATION & SECRETS
@@ -23,7 +24,7 @@ ADMIN_EMAILS = [st.secrets["ADMIN_EMAIL"]]
 st.set_page_config(page_title="NEURAL // Jobs", page_icon="⚡", layout="wide", initial_sidebar_state="collapsed")
 
 def apply_futuristic_css():
-    st.markdown("""
+    css = """
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
     <style>
     * { font-family: 'Outfit', sans-serif; }
@@ -46,12 +47,13 @@ def apply_futuristic_css():
     .stTabs [data-baseweb="tab"] { font-size: 1.1rem; font-weight: 700; color: #8892b0; }
     .stTabs [aria-selected="true"] { color: #00f2fe !important; border-bottom: 2px solid #00f2fe !important; text-shadow: 0 0 10px rgba(0, 242, 254, 0.5); }
     </style>
-    """, unsafe_allow_html=True)
+    """
+    st.markdown(css, unsafe_allow_html=True)
 
 apply_futuristic_css()
 
 # ==========================================
-# 3. DATABASE SETUP 
+# 3. DATABASE SETUP (With Auto-Upgrade)
 # ==========================================
 USER_HOME = os.path.expanduser("~") 
 DB_PATH = os.path.join(USER_HOME, 'ai_jobs_production.db')
@@ -60,8 +62,16 @@ def init_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, title TEXT, company TEXT, location TEXT, url TEXT, source TEXT, description TEXT, salary_amount TEXT, salary_type TEXT)''')
+    
+    # Auto-upgrade database to add 'date_added' if it doesn't exist
+    try:
+        c.execute("ALTER TABLE jobs ADD COLUMN date_added TEXT")
+    except sqlite3.OperationalError:
+        pass # Column already exists, all good!
+        
     conn.commit()
     conn.close()
+
 init_db()
 
 # ==========================================
@@ -75,9 +85,9 @@ def run_auto_job_engine():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     new_count = 0
+    today_str = datetime.now().strftime("%Y-%m-%d")
     keywords = ['ai', 'machine learning', 'data', 'llm', 'python', 'artificial intelligence', 'prompt', 'deep learning', 'nlp', 'openai', 'pytorch']
     
-    # --- STREAM 1: Remotive API (Data & Software Dev) ---
     api_urls = ["https://remotive.com/api/remote-jobs?category=data", "https://remotive.com/api/remote-jobs?category=software-dev"]
     for url in api_urls:
         try:
@@ -85,13 +95,12 @@ def run_auto_job_engine():
             for job in req.json().get('jobs', []):
                 if any(word in job.get('title', '').lower() for word in keywords):
                     try:
-                        c.execute("""INSERT INTO jobs (id, title, company, location, url, source, description, salary_amount, salary_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                                  (str(job['id']), job['title'], job['company_name'], job['candidate_required_location'], job['url'], 'Remotive API', clean_html(job.get('description', ''))[:1500] + "...", job.get('salary', 'N/A') or 'N/A', 'Yearly'))
+                        c.execute("""INSERT INTO jobs (id, title, company, location, url, source, description, salary_amount, salary_type, date_added) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                                  (str(job['id']), job['title'], job['company_name'], job['candidate_required_location'], job['url'], 'Remotive API', clean_html(job.get('description', ''))[:1500] + "...", job.get('salary', 'N/A') or 'N/A', 'Yearly', today_str))
                         new_count += 1
                     except sqlite3.IntegrityError: pass
         except: pass
 
-    # --- STREAM 2: WeWorkRemotely RSS Feeds ---
     try:
         feed = feedparser.parse("https://weworkremotely.com/categories/remote-programming-jobs.rss")
         for entry in feed.entries:
@@ -101,8 +110,8 @@ def run_auto_job_engine():
                     job_id = "WWR_" + str(uuid.uuid5(uuid.NAMESPACE_URL, entry.link))[:8]
                     company = title.split(":")[0] if ":" in title else "Unknown"
                     job_title = title.split(":")[1] if ":" in title else title
-                    c.execute("""INSERT INTO jobs (id, title, company, location, url, source, description, salary_amount, salary_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                              (job_id, job_title.strip(), company.strip(), "Remote", entry.link, 'WWR RSS', clean_html(entry.description)[:1500] + "...", 'N/A', 'Unspecified'))
+                    c.execute("""INSERT INTO jobs (id, title, company, location, url, source, description, salary_amount, salary_type, date_added) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                              (job_id, job_title.strip(), company.strip(), "Remote", entry.link, 'WWR RSS', clean_html(entry.description)[:1500] + "...", 'N/A', 'Unspecified', today_str))
                     new_count += 1
                 except sqlite3.IntegrityError: pass
     except: pass
@@ -115,19 +124,31 @@ def extract_text_from_pdf(uploaded_file):
     try: return "".join([page.extract_text() + " " for page in PyPDF2.PdfReader(uploaded_file).pages]).lower()
     except: return ""
 
-def display_job_card(row):
+def display_job_card(row, is_admin=False):
+    # Check if job is expired (Admin view only)
+    is_expired = False
+    if is_admin and row['date_added'] < (datetime.now() - timedelta(days=30)):
+        is_expired = True
+
     with st.container(border=True):
         col_icon, col_details, col_action = st.columns([1, 7, 2])
         with col_icon:
             st.markdown(f"<div class='company-avatar'>{row['company'][0].upper() if row['company'] else 'X'}</div>", unsafe_allow_html=True)
         with col_details:
-            st.markdown(f"<h3 style='margin-bottom:0px; color:#ffffff;'>{row['title']}</h3>", unsafe_allow_html=True)
+            title_html = f"<h3 style='margin-bottom:0px; color:#ffffff;'>{row['title']}</h3>"
+            if is_expired: title_html = f"<h3 style='margin-bottom:0px; color:#ff4757;'>[EXPIRED] {row['title']}</h3>"
+            
+            st.markdown(title_html, unsafe_allow_html=True)
             st.markdown(f"<p style='color:#8892b0; font-size: 1.1rem; margin-top: 5px;'>{row['company']}</p>", unsafe_allow_html=True)
             sal = f"{row['salary_amount']} / {row['salary_type']}" if row['salary_amount'] != "N/A" else "Unlisted"
+            
+            # Format the date so it looks like a clean string if it's a datetime object
+            date_str = str(row['date_added'])[:10]
+            
             st.markdown(f"""
                 <span class='tech-tag'>LOC: {row['location']}</span>
                 <span class='tech-tag'>PAY: {sal}</span>
-                <span class='tech-tag'>SYS: {row['source']}</span>
+                <span class='tech-tag'>DATE: {date_str}</span>
             """, unsafe_allow_html=True)
         with col_action:
             st.write("")
@@ -158,7 +179,7 @@ if not st.session_state['logged_in']:
         auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}&scope=openid%20email%20profile"
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
-            login_ui = f"""
+            st.markdown(f"""
             <div class="login-wrapper">
                 <div class="login-card">
                     <p class="system-status">[ SYSTEM STATUS: SECURE & ONLINE ]</p>
@@ -170,8 +191,7 @@ if not st.session_state['logged_in']:
                     <a href="{auth_url}" class="cyber-btn" target="_blank">CONNECT DATASTREAM</a>
                 </div>
             </div>
-            """
-            st.markdown(login_ui, unsafe_allow_html=True)
+            """, unsafe_allow_html=True)
 
 # ==========================================
 # 6. MAIN APP DASHBOARDS
@@ -187,10 +207,18 @@ else:
             st.session_state.update({'logged_in': False, 'user_role': None, 'user_name': ""})
             st.rerun()
 
+    # Data Processing Pipeline
     conn = sqlite3.connect(DB_PATH)
     df = pd.read_sql_query("SELECT * FROM jobs", conn)
     conn.close()
 
+    # Convert dates and fill missing old data with today's date so it doesn't crash
+    if 'date_added' in df.columns:
+        df['date_added'] = pd.to_datetime(df['date_added'], errors='coerce').fillna(pd.to_datetime('today'))
+    else:
+        df['date_added'] = pd.to_datetime('today')
+
+    # --- ADMIN VIEW ---
     if st.session_state['user_role'] == "admin":
         st.markdown("### [ GRID METRICS ]")
         m1, m2, m3, m4 = st.columns(4)
@@ -202,7 +230,6 @@ else:
 
         tab1, tab2, tab3 = st.tabs(["[ RUN ENGINE ]", "[ INJECT DATA ]", "[ NODE LIST ]"])
         with tab1:
-            st.markdown("#### Sync with Global Arrays")
             if st.button(">>> INITIATE GLOBAL SCRAPE", type="primary", use_container_width=True):
                 with st.spinner("Extracting web data..."):
                     st.success(f"Successfully extracted {run_auto_job_engine()} new nodes!")
@@ -219,8 +246,9 @@ else:
                     m_desc = st.text_area("File Contents")
                     if st.form_submit_button("INJECT NODE", type="primary"):
                         conn = sqlite3.connect(DB_PATH)
-                        conn.cursor().execute("INSERT INTO jobs (id, title, company, location, url, source, description, salary_amount, salary_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                                              ("MAN_"+str(uuid.uuid4())[:8], m_title, m_company, "Remote", m_url, "Manual", m_desc or "No desc", m_sal_amount or "N/A", m_sal_type))
+                        today_str = datetime.now().strftime("%Y-%m-%d")
+                        conn.cursor().execute("INSERT INTO jobs (id, title, company, location, url, source, description, salary_amount, salary_type, date_added) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                                              ("MAN_"+str(uuid.uuid4())[:8], m_title, m_company, "Remote", m_url, "Manual", m_desc or "No desc", m_sal_amount or "N/A", m_sal_type, today_str))
                         conn.commit()
                         conn.close()
                         st.success("Injection Successful.")
@@ -228,17 +256,46 @@ else:
         with tab3:
             if df.empty: st.info("Grid empty. Run global scrape.")
             else:
-                for _, row in df.iterrows(): display_job_card(row)
+                # Sort newest first for admin
+                df = df.sort_values(by='date_added', ascending=False)
+                for _, row in df.iterrows(): display_job_card(row, is_admin=True)
 
+    # --- SEEKER VIEW ---
     elif st.session_state['user_role'] == "seeker":
+        
+        # 🚨 THE AUTO-HIDE OVERRIDE: Delete jobs older than 30 days from seeker view!
+        thirty_days_ago = datetime.now() - timedelta(days=30)
+        df_seeker = df[df['date_added'] >= thirty_days_ago].copy()
+
         tab_browse, tab_match = st.tabs(["[ GRID SEARCH ]", "[ AI OVERRIDE ]"])
+        
         with tab_browse:
-            search = st.text_input("QUERY DATABASE...", placeholder="Enter parameters: Python, Anthropic, LLM...")
+            # The New Cyber Dropdown Filters
+            col_search, col_time = st.columns([3, 1])
+            with col_search:
+                search = st.text_input("QUERY DATABASE...", placeholder="Parameters: Python, OpenAI, Remote...")
+            with col_time:
+                time_filter = st.selectbox("TIME RANGE", ["All Active", "Past 24 Hours", "Past 7 Days"])
+            
             st.write("---")
-            display_df = df[df['title'].str.contains(search, case=False) | df['company'].str.contains(search, case=False)] if search else df
-            if display_df.empty: st.info("No nodes match parameters.")
+            
+            # Apply Time Filters
+            if time_filter == "Past 24 Hours":
+                df_seeker = df_seeker[df_seeker['date_added'] >= (datetime.now() - timedelta(days=1))]
+            elif time_filter == "Past 7 Days":
+                df_seeker = df_seeker[df_seeker['date_added'] >= (datetime.now() - timedelta(days=7))]
+                
+            # Apply Search Filters
+            if search:
+                df_seeker = df_seeker[df_seeker['title'].str.contains(search, case=False) | df_seeker['company'].str.contains(search, case=False)]
+            
+            # Sort newest first
+            df_seeker = df_seeker.sort_values(by='date_added', ascending=False)
+            
+            if df_seeker.empty: st.info("No nodes match parameters.")
             else:
-                for _, row in display_df.iterrows(): display_job_card(row)
+                for _, row in df_seeker.iterrows(): display_job_card(row, is_admin=False)
+                
         with tab_match:
             with st.container(border=True):
                 uploaded_file = st.file_uploader("UPLOAD DATAPACK (PDF)", type="pdf")
@@ -248,9 +305,9 @@ else:
                     if skills:
                         st.success(f"**Parameters Found:** {', '.join(skills).title()}")
                         st.write("---")
-                        matched = df[df['title'].str.lower().str.contains('|'.join(skills))]
+                        matched = df_seeker[df_seeker['title'].str.lower().str.contains('|'.join(skills))]
                         if not matched.empty:
                             st.markdown(f"#### >>> MATCHES FOUND ({len(matched)}):")
-                            for _, row in matched.head(10).iterrows(): display_job_card(row)
-                        else: st.info("No matching nodes currently active.")
+                            for _, row in matched.head(10).iterrows(): display_job_card(row, is_admin=False)
+                        else: st.info("No matching active nodes currently active.")
                     else: st.warning("Analysis failed. No valid parameters detected.")
