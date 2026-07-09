@@ -18,7 +18,7 @@ REDIRECT_URI = st.secrets["REDIRECT_URI"]
 ADMIN_EMAILS = [st.secrets["ADMIN_EMAIL"]]
 
 # ==========================================
-# 2. FUTURISTIC UI & ANIMATIONS (V2.0)
+# 2. FUTURISTIC UI & ANIMATIONS
 # ==========================================
 st.set_page_config(page_title="NEURAL // Jobs", page_icon="⚡", layout="wide", initial_sidebar_state="collapsed")
 
@@ -34,7 +34,7 @@ def apply_futuristic_css():
     .login-card { background: linear-gradient(145deg, rgba(15, 23, 42, 0.7) 0%, rgba(20, 20, 30, 0.5) 100%); border: 1px solid rgba(0, 242, 254, 0.3); border-radius: 20px; padding: 50px 40px; box-shadow: 0 0 40px rgba(0, 242, 254, 0.1); text-align: center; backdrop-filter: blur(16px); width: 100%; max-width: 500px; transition: all 0.5s ease;}
     .maintenance-card { border: 1px solid rgba(255, 71, 87, 0.5) !important; box-shadow: 0 0 50px rgba(255, 71, 87, 0.2) !important; }
     .app-title-large { font-size: 4rem; font-weight: 900; background: linear-gradient(90deg, #00f2fe 0%, #4facfe 50%, #b06ab3 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; text-shadow: 0px 0px 25px rgba(0, 242, 254, 0.5); letter-spacing: -2px; margin-bottom: 5px; line-height: 1.1; }
-    .app-title-maintenance { background: linear-gradient(90deg, #ff4757 0%, #ff6b81 100%) !important; -webkit-background-clip: text; -webkit-text-fill-color: transparent; text-shadow: 0px 0px 25px rgba(255, 71, 87, 0.5) !important;}
+    .app-title-maintenance { color: #ff4757 !important; background: none !important; -webkit-text-fill-color: #ff4757 !important; text-shadow: 0px 0px 25px rgba(255, 71, 87, 0.8) !important;}
     .system-status { font-family: 'Share Tech Mono', monospace; color: #00ffcc; font-size: 0.9rem; margin-bottom: 25px; animation: blink 2s linear infinite; }
     .system-status-offline { color: #ff4757 !important; text-shadow: 0 0 10px #ff4757 !important; }
     @keyframes blink { 0%, 100% { opacity: 1; text-shadow: 0 0 10px #00ffcc; } 50% { opacity: 0.4; text-shadow: none; } }
@@ -59,7 +59,7 @@ def apply_futuristic_css():
 apply_futuristic_css()
 
 # ==========================================
-# 3. DATABASE SETUP (With Warning Columns)
+# 3. DATABASE SETUP (With Auto-Upgrades)
 # ==========================================
 USER_HOME = os.path.expanduser("~") 
 DB_PATH = os.path.join(USER_HOME, 'ai_jobs_production.db')
@@ -74,7 +74,6 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS sys_settings (id INTEGER PRIMARY KEY, is_maintenance INTEGER, resume_time TEXT, message TEXT)''')
     c.execute("INSERT OR IGNORE INTO sys_settings (id, is_maintenance, resume_time, message) VALUES (1, 0, '', '')")
     
-    # Auto-upgrade DB for warning messages
     try: c.execute("ALTER TABLE sys_settings ADD COLUMN is_warning INTEGER DEFAULT 0")
     except sqlite3.OperationalError: pass
     try: c.execute("ALTER TABLE sys_settings ADD COLUMN warning_msg TEXT DEFAULT ''")
@@ -155,7 +154,7 @@ def extract_text_from_pdf(uploaded_file):
 
 def display_job_card(row, is_admin=False):
     is_expired = False
-    # FIX: Safely convert both sides to Pandas Datetime objects before comparing
+    # Use pandas to safely handle time comparisons
     if is_admin and pd.to_datetime(row['date_added']) < (pd.to_datetime('today') - timedelta(days=30)):
         is_expired = True
 
@@ -200,7 +199,7 @@ if is_maint == 1 and st.session_state['user_role'] != "admin":
                 <p style="color: #ff4757; font-family: 'Share Tech Mono', monospace; font-size: 1.2rem; margin-bottom: 30px;">
                     EXPECTED UPLINK RESTORED: <br> {res_time}
                 </p>
-                <a href="{auth_url}" class="cyber-btn admin-bypass-btn" target="_blank">ADMIN OVERRIDE LOGIN</a>
+                <a href="{auth_url}" class="cyber-btn admin-bypass-btn" target="_blank">STAFF LOGIN</a>
             </div>
         </div>
         """, unsafe_allow_html=True)
@@ -240,7 +239,6 @@ if not st.session_state['logged_in']:
 # 6. MAIN APP DASHBOARDS
 # ==========================================
 else:
-    # GLOBAL WARNING BANNER (Shows if Stage 1 is active)
     if is_warn == 1:
         st.markdown(f"<div class='cyber-warning-banner'>⚠️ SYSTEM NOTICE: {warn_msg}</div>", unsafe_allow_html=True)
 
