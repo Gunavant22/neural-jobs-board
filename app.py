@@ -5,7 +5,9 @@ import pandas as pd
 import os
 import PyPDF2
 import uuid
+import re
 from bs4 import BeautifulSoup
+import feedparser
 
 # ==========================================
 # 1. PRODUCTION CONFIGURATION & SECRETS
@@ -73,17 +75,38 @@ def run_auto_job_engine():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     new_count = 0
-    keywords = ['ai', 'machine learning', 'data', 'llm', 'python', 'artificial intelligence', 'prompt']
+    keywords = ['ai', 'machine learning', 'data', 'llm', 'python', 'artificial intelligence', 'prompt', 'deep learning', 'nlp', 'openai', 'pytorch']
+    
+    # --- STREAM 1: Remotive API (Data & Software Dev) ---
+    api_urls = ["https://remotive.com/api/remote-jobs?category=data", "https://remotive.com/api/remote-jobs?category=software-dev"]
+    for url in api_urls:
+        try:
+            req = requests.get(url)
+            for job in req.json().get('jobs', []):
+                if any(word in job.get('title', '').lower() for word in keywords):
+                    try:
+                        c.execute("""INSERT INTO jobs (id, title, company, location, url, source, description, salary_amount, salary_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                                  (str(job['id']), job['title'], job['company_name'], job['candidate_required_location'], job['url'], 'Remotive API', clean_html(job.get('description', ''))[:1500] + "...", job.get('salary', 'N/A') or 'N/A', 'Yearly'))
+                        new_count += 1
+                    except sqlite3.IntegrityError: pass
+        except: pass
+
+    # --- STREAM 2: WeWorkRemotely RSS Feeds ---
     try:
-        req = requests.get("https://remotive.com/api/remote-jobs?category=data")
-        for job in req.json().get('jobs', []):
-            if any(word in job.get('title', '').lower() for word in keywords):
+        feed = feedparser.parse("https://weworkremotely.com/categories/remote-programming-jobs.rss")
+        for entry in feed.entries:
+            title = entry.title
+            if any(word in title.lower() for word in keywords):
                 try:
+                    job_id = "WWR_" + str(uuid.uuid5(uuid.NAMESPACE_URL, entry.link))[:8]
+                    company = title.split(":")[0] if ":" in title else "Unknown"
+                    job_title = title.split(":")[1] if ":" in title else title
                     c.execute("""INSERT INTO jobs (id, title, company, location, url, source, description, salary_amount, salary_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                              (str(job['id']), job['title'], job['company_name'], job['candidate_required_location'], job['url'], 'Remotive API', clean_html(job.get('description', ''))[:1500] + "...", job.get('salary', 'N/A') or 'N/A', 'Yearly'))
+                              (job_id, job_title.strip(), company.strip(), "Remote", entry.link, 'WWR RSS', clean_html(entry.description)[:1500] + "...", 'N/A', 'Unspecified'))
                     new_count += 1
                 except sqlite3.IntegrityError: pass
     except: pass
+
     conn.commit()
     conn.close()
     return new_count
@@ -113,15 +136,13 @@ def display_job_card(row):
             st.write(row['description'])
 
 # ==========================================
-# 5. LOGIN SYSTEM (THE NEW ENGAGING UI)
+# 5. LOGIN SYSTEM
 # ==========================================
 if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
 if 'user_role' not in st.session_state: st.session_state['user_role'] = None
 if 'user_name' not in st.session_state: st.session_state['user_name'] = ""
 
 if not st.session_state['logged_in']:
-    
-    # Process Google Authentication if redirected back
     if 'code' in st.query_params:
         with st.spinner("Decrypting neural pathways..."):
             code = st.query_params['code']
@@ -133,12 +154,8 @@ if not st.session_state['logged_in']:
                 st.rerun()
             else: 
                 st.error("Access Denied. Invalid authorization protocols.")
-
-    # Show the beautiful centered Login Card
     else:
         auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}&scope=openid%20email%20profile"
-        
-        # Use columns to center the UI
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
             login_ui = f"""
@@ -174,7 +191,6 @@ else:
     df = pd.read_sql_query("SELECT * FROM jobs", conn)
     conn.close()
 
-    # --- ADMIN ---
     if st.session_state['user_role'] == "admin":
         st.markdown("### [ GRID METRICS ]")
         m1, m2, m3, m4 = st.columns(4)
@@ -214,7 +230,6 @@ else:
             else:
                 for _, row in df.iterrows(): display_job_card(row)
 
-    # --- SEEKER ---
     elif st.session_state['user_role'] == "seeker":
         tab_browse, tab_match = st.tabs(["[ GRID SEARCH ]", "[ AI OVERRIDE ]"])
         with tab_browse:
