@@ -25,98 +25,28 @@ def apply_futuristic_css():
     css = """
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
     <style>
-    /* Global Base */
     * { font-family: 'Outfit', sans-serif; }
     #MainMenu, footer, header {visibility: hidden;}
-    
-    /* Animated Cyber Grid Background */
-    .stApp {
-        background-color: #050810;
-        background-image: 
-            linear-gradient(rgba(0, 242, 254, 0.03) 1px, transparent 1px),
-            linear-gradient(90deg, rgba(0, 242, 254, 0.03) 1px, transparent 1px);
-        background-size: 30px 30px;
-        background-position: center center;
-    }
-
-    /* --- LOGIN SCREEN ANIMATIONS & STYLING --- */
-    .login-wrapper {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        margin-top: 10vh;
-        animation: float 6s ease-in-out infinite;
-    }
-    
-    @keyframes float {
-        0% { transform: translateY(0px); }
-        50% { transform: translateY(-15px); }
-        100% { transform: translateY(0px); }
-    }
-
-    .login-card {
-        background: linear-gradient(145deg, rgba(15, 23, 42, 0.7) 0%, rgba(20, 20, 30, 0.5) 100%);
-        border: 1px solid rgba(0, 242, 254, 0.3);
-        border-radius: 20px;
-        padding: 50px 40px;
-        box-shadow: 0 0 40px rgba(0, 242, 254, 0.1);
-        text-align: center;
-        backdrop-filter: blur(16px);
-        width: 100%;
-        max-width: 500px;
-    }
-
-    .app-title-large {
-        font-size: 4rem;
-        font-weight: 900;
-        background: linear-gradient(90deg, #00f2fe 0%, #4facfe 50%, #b06ab3 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        text-shadow: 0px 0px 25px rgba(0, 242, 254, 0.5);
-        letter-spacing: -2px;
-        margin-bottom: 5px;
-        line-height: 1.1;
-    }
-
-    .system-status {
-        font-family: 'Share Tech Mono', monospace;
-        color: #00ffcc;
-        font-size: 0.9rem;
-        margin-bottom: 25px;
-        animation: blink 2s linear infinite;
-    }
-    
-    @keyframes blink { 
-        0%, 100% { opacity: 1; text-shadow: 0 0 10px #00ffcc; }
-        50% { opacity: 0.4; text-shadow: none; }
-    }
-
-    /* Custom HTML Cyber Button */
-    .cyber-btn {
-        display: inline-block;
-        margin-top: 20px;
-        padding: 15px 40px;
-        background: rgba(0, 242, 254, 0.1);
-        color: #00f2fe !important;
-        font-family: 'Share Tech Mono', monospace;
-        font-size: 1.2rem;
-        font-weight: bold;
-        text-decoration: none;
-        border: 1px solid #00f2fe;
-        border-radius: 4px;
-        text-transform: uppercase;
-        letter-spacing: 2px;
-        transition: all 0.3s ease;
-        box-shadow: inset 0 0 10px rgba(0, 242, 254, 0.1), 0 0 15px rgba(0, 242, 254, 0.2);
-    }
-    
-    .cyber-btn:hover {
-        background: #00f2fe;
-        color: #050810 !important;
-        box-shadow: 0 0 30px rgba(0, 242, 254, 0.8);
-        transform: scale(1.05);
-    }
+    .stApp { background-color: #050810; background-image: linear-gradient(rgba(0, 242, 254, 0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(0, 242, 254, 0.03) 1px, transparent 1px); background-size: 30px 30px; background-position: center center; }
+    .login-wrapper { display: flex; flex-direction: column; align-items: center; justify-content: center; margin-top: 10vh; animation: float 6s ease-in-out infinite; }
+    @keyframes float { 0% { transform: translateY(0px); } 50% { transform: translateY(-15px); } 100% { transform: translateY(0px); } }
+    .login-card { background: linear-gradient(145deg, rgba(15, 23, 42, 0.7) 0%, rgba(20, 20, 30, 0.5) 100%); border: 1px solid rgba(0, 242, 254, 0.3); border-radius: 20px; padding: 50px 40px; box-shadow: 0 0 40px rgba(0, 242, 254, 0.1); text-align: center; backdrop-filter: blur(16px); width: 100%; max-width: 500px; }
+    .app-title-large { font-size: 4rem; font-weight: 900; background: linear-gradient(90deg, #00f2fe 0%, #4facfe 50%, #b06ab3 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; text-shadow: 0px 0px 25px rgba(0, 242, 254, 0.5); letter-spacing: -2px; margin-bottom: 5px; line-height: 1.1; }
+    .system-status { font-family: 'Share Tech Mono', monospace; color: #00ffcc; font-size: 0.9rem; margin-bottom: 25px; animation: blink 2s linear infinite; }
+    @keyframes blink { 0%, 100% { opacity: 1; text-shadow: 0 0 10px #00ffcc; } 50% { opacity: 0.4; text-shadow: none; } }
+    .cyber-btn { display: inline-block; margin-top: 20px; padding: 15px 40px; background: rgba(0, 242, 254, 0.1); color: #00f2fe !important; font-family: 'Share Tech Mono', monospace; font-size: 1.2rem; font-weight: bold; text-decoration: none; border: 1px solid #00f2fe; border-radius: 4px; text-transform: uppercase; letter-spacing: 2px; transition: all 0.3s ease; box-shadow: inset 0 0 10px rgba(0, 242, 254, 0.1), 0 0 15px rgba(0, 242, 254, 0.2); }
+    .cyber-btn:hover { background: #00f2fe; color: #050810 !important; box-shadow: 0 0 30px rgba(0, 242, 254, 0.8); transform: scale(1.05); }
+    .app-title-small { font-size: 2.5rem; font-weight: 900; background: linear-gradient(90deg, #00f2fe 0%, #4facfe 50%, #b06ab3 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; text-shadow: 0px 0px 15px rgba(0, 242, 254, 0.3); margin-bottom: 0px; text-transform: uppercase; }
+    [data-testid="stVerticalBlockBorderWrapper"] { border-radius: 12px !important; border: 1px solid rgba(0, 242, 254, 0.15) !important; background: rgba(15, 23, 42, 0.4) !important; backdrop-filter: blur(10px) !important; transition: all 0.2s ease-in-out; }
+    [data-testid="stVerticalBlockBorderWrapper"]:hover { border: 1px solid rgba(0, 242, 254, 0.5) !important; box-shadow: 0 0 20px rgba(0, 242, 254, 0.15); }
+    .tech-tag { background: rgba(0, 242, 254, 0.1); color: #00f2fe; padding: 4px 10px; border-radius: 4px; font-size: 0.8rem; font-weight: 700; border: 1px solid rgba(0, 242, 254, 0.3); margin-right: 8px; font-family: 'Share Tech Mono', monospace;}
+    .company-avatar { width: 60px; height: 60px; background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border: 2px solid #b06ab3; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.8rem; font-weight: bold; color: #b06ab3; box-shadow: 0 0 15px rgba(176, 106, 179, 0.4); margin: auto; }
+    .stTabs [data-baseweb="tab-list"] { gap: 30px; }
+    .stTabs [data-baseweb="tab"] { font-size: 1.1rem; font-weight: 700; color: #8892b0; }
+    .stTabs [aria-selected="true"] { color: #00f2fe !important; border-bottom: 2px solid #00f2fe !important; text-shadow: 0 0 10px rgba(0, 242, 254, 0.5); }
+    </style>
+    """
+    st.markdown(css, unsafe_allow_html=True)
 
     /* --- DASHBOARD STYLING --- */
     .app-title-small { font-size: 2.5rem; font-weight: 900; background: linear-gradient(90deg, #00f2fe 0%, #4facfe 50%, #b06ab3 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; text-shadow: 0px 0px 15px rgba(0, 242, 254, 0.3); margin-bottom: 0px; text-transform: uppercase; }
