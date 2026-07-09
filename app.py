@@ -57,7 +57,7 @@ def apply_futuristic_css():
 apply_futuristic_css()
 
 # ==========================================
-# 3. DATABASE SETUP 
+# 3. DATABASE SETUP
 # ==========================================
 USER_HOME = os.path.expanduser("~") 
 DB_PATH = os.path.join(USER_HOME, 'ai_jobs_production.db')
@@ -101,6 +101,7 @@ def get_sys_status():
             conn.commit()
             conn.close()
             return (0, "", "", 0, "")
+            
     return (is_maint, res_time, msg, is_warn, warn_msg)
 
 def extract_text_from_pdf(uploaded_file):
@@ -125,7 +126,6 @@ def display_job_card(row, is_admin=False):
             # --- SALARY FORMATTING (DOLLAR SIGN FIX) ---
             sal_val = str(row['salary_amount']).strip()
             if sal_val and sal_val.lower() not in ["n/a", ""]:
-                # Add $ if it's missing
                 if not sal_val.startswith("$"):
                     sal_val = "$" + sal_val
                 sal = f"{sal_val} / {row['salary_type']}"
@@ -244,14 +244,17 @@ else:
     conn = sqlite3.connect(DB_PATH)
     df = pd.read_sql_query("SELECT * FROM jobs", conn)
     conn.close()
-    if 'date_added' in df.columns: df['date_added'] = pd.to_datetime(df['date_added'], errors='coerce').fillna(pd.to_datetime('today'))
-    else: df['date_added'] = pd.to_datetime('today')
+    
+    if 'date_added' in df.columns: 
+        df['date_added'] = pd.to_datetime(df['date_added'], errors='coerce').fillna(pd.to_datetime('today'))
+    else: 
+        df['date_added'] = pd.to_datetime('today')
 
     # --- ADMIN VIEW ---
     if st.session_state['user_role'] == "admin":
         st.markdown("### [ GRID METRICS ]")
         
-        # Calculate active vs expired for manual board
+        # Calculate active vs expired
         thirty_days_ago = pd.to_datetime('today') - timedelta(days=30)
         active_nodes = len(df[df['date_added'] >= thirty_days_ago]) if not df.empty else 0
         expired_nodes = len(df) - active_nodes
@@ -327,7 +330,7 @@ else:
                     m_location = "Remote"
                 
                 c1, c2 = st.columns(2)
-                with c1: m_sal_amount = st.text_input("Compensation (in USD $)")
+                with c1: m_sal_amount = st.text_input("Compensation (in USD)")
                 with c2: m_sal_type = st.selectbox("Cycle", ["Yearly", "Monthly", "Hourly", "Unspecified"])
                 m_url = st.text_input("Uplink URL")
                 m_desc = st.text_area("File Contents")
@@ -346,10 +349,12 @@ else:
                         st.error("SYSTEM ERROR: Title, Company, and URL are required.")
                         
         with tab2:
-            if df.empty: st.info("Grid empty. Inject new nodes.")
+            if df.empty: 
+                st.info("Grid empty. Inject new nodes.")
             else:
                 df = df.sort_values(by='date_added', ascending=False)
-                for _, row in df.iterrows(): display_job_card(row, is_admin=True)
+                for _, row in df.iterrows(): 
+                    display_job_card(row, is_admin=True)
 
     # --- SEEKER VIEW ---
     elif st.session_state['user_role'] == "seeker":
