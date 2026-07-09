@@ -3,4 +3,4 @@ requests
 pandas
 PyPDF2
 beautifulsoup4
-feedparser
+psycopg2-binaryer
