@@ -401,7 +401,6 @@ else:
         conn.close()
 
         tab_browse, tab_saved, tab_match = st.tabs(["[ GRID SEARCH ]", "[ ⭐ SAVED NODES ]", "[ AI OVERRIDE ]"])
-        
         with tab_browse:
             col_search, col_time = st.columns([3, 1])
             with col_search: search = st.text_input("QUERY DATABASE...", placeholder="Parameters: Python, OpenAI, Remote...")
@@ -414,8 +413,9 @@ else:
             df_seeker = df_seeker.sort_values(by='date_added', ascending=False)
             if df_seeker.empty: st.info("No nodes match parameters.")
             else:
+                # 🛠️ THE FIX IS HERE: Now we pass the user_email to the card!
                 for _, row in df_seeker.iterrows(): display_job_card(row, is_admin=False, user_email=user_email, is_saved=(row['id'] in saved_job_ids))
-        
+                
         with tab_saved:
             st.markdown("#### YOUR ENCRYPTED FAVORITES")
             df_saved = df_seeker[df_seeker['id'].isin(saved_job_ids)]
@@ -439,3 +439,4 @@ else:
                             for _, row in matched.head(10).iterrows(): display_job_card(row, is_admin=False, user_email=user_email, is_saved=(row['id'] in saved_job_ids))
                         else: st.info("No matching active nodes currently active.")
                     else: st.warning("Analysis failed. No valid parameters detected.")
+    
