@@ -17,24 +17,113 @@ REDIRECT_URI = st.secrets["REDIRECT_URI"]
 ADMIN_EMAILS = [st.secrets["ADMIN_EMAIL"]]
 
 # ==========================================
-# 2. FUTURISTIC UI STYLING (CYBERPUNK / AI VIBE)
+# 2. FUTURISTIC UI & ANIMATIONS (V2.0)
 # ==========================================
-st.set_page_config(page_title="NEURAL // Jobs", page_icon=">_", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="NEURAL // Jobs", page_icon="⚡", layout="wide", initial_sidebar_state="collapsed")
 
 def apply_futuristic_css():
     css = """
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;700;900&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
     <style>
+    /* Global Base */
     * { font-family: 'Outfit', sans-serif; }
     #MainMenu, footer, header {visibility: hidden;}
-    .app-title { font-size: 3.5rem; font-weight: 900; background: linear-gradient(90deg, #00f2fe 0%, #4facfe 50%, #b06ab3 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; text-shadow: 0px 0px 20px rgba(0, 242, 254, 0.4); letter-spacing: -2px; margin-bottom: 0px; text-transform: uppercase; }
-    .sub-title { color: #8892b0; font-weight: 300; letter-spacing: 2px; text-transform: uppercase; font-size: 0.9rem; margin-bottom: 2rem; }
-    [data-testid="stVerticalBlockBorderWrapper"] { border-radius: 16px !important; border: 1px solid rgba(0, 242, 254, 0.1) !important; background: linear-gradient(145deg, rgba(15, 23, 42, 0.4) 0%, rgba(20, 20, 30, 0.2) 100%) !important; backdrop-filter: blur(12px) !important; box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1); transition: all 0.3s ease-in-out; }
-    [data-testid="stVerticalBlockBorderWrapper"]:hover { border: 1px solid rgba(0, 242, 254, 0.6) !important; box-shadow: 0 0 25px rgba(0, 242, 254, 0.2); transform: translateY(-3px); }
-    .stButton>button[kind="primary"] { background: linear-gradient(90deg, #4facfe 0%, #00f2fe 100%); color: #0b0f19 !important; font-weight: 800; border-radius: 8px; border: none; box-shadow: 0 0 15px rgba(0, 242, 254, 0.4); transition: all 0.2s ease; text-transform: uppercase; letter-spacing: 1px; }
-    .stButton>button[kind="primary"]:hover { box-shadow: 0 0 30px rgba(0, 242, 254, 0.8); transform: scale(1.02); }
-    .tech-tag { background: rgba(0, 242, 254, 0.1); color: #00f2fe; padding: 4px 10px; border-radius: 4px; font-size: 0.8rem; font-weight: 700; border: 1px solid rgba(0, 242, 254, 0.3); margin-right: 8px; }
-    .company-avatar { width: 60px; height: 60px; background: linear-gradient(135deg, #2e3440 0%, #0b0f19 100%); border: 2px solid #b06ab3; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.8rem; font-weight: bold; color: #b06ab3; box-shadow: 0 0 15px rgba(176, 106, 179, 0.4); margin: auto; }
+    
+    /* Animated Cyber Grid Background */
+    .stApp {
+        background-color: #050810;
+        background-image: 
+            linear-gradient(rgba(0, 242, 254, 0.03) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(0, 242, 254, 0.03) 1px, transparent 1px);
+        background-size: 30px 30px;
+        background-position: center center;
+    }
+
+    /* --- LOGIN SCREEN ANIMATIONS & STYLING --- */
+    .login-wrapper {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        margin-top: 10vh;
+        animation: float 6s ease-in-out infinite;
+    }
+    
+    @keyframes float {
+        0% { transform: translateY(0px); }
+        50% { transform: translateY(-15px); }
+        100% { transform: translateY(0px); }
+    }
+
+    .login-card {
+        background: linear-gradient(145deg, rgba(15, 23, 42, 0.7) 0%, rgba(20, 20, 30, 0.5) 100%);
+        border: 1px solid rgba(0, 242, 254, 0.3);
+        border-radius: 20px;
+        padding: 50px 40px;
+        box-shadow: 0 0 40px rgba(0, 242, 254, 0.1);
+        text-align: center;
+        backdrop-filter: blur(16px);
+        width: 100%;
+        max-width: 500px;
+    }
+
+    .app-title-large {
+        font-size: 4rem;
+        font-weight: 900;
+        background: linear-gradient(90deg, #00f2fe 0%, #4facfe 50%, #b06ab3 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        text-shadow: 0px 0px 25px rgba(0, 242, 254, 0.5);
+        letter-spacing: -2px;
+        margin-bottom: 5px;
+        line-height: 1.1;
+    }
+
+    .system-status {
+        font-family: 'Share Tech Mono', monospace;
+        color: #00ffcc;
+        font-size: 0.9rem;
+        margin-bottom: 25px;
+        animation: blink 2s linear infinite;
+    }
+    
+    @keyframes blink { 
+        0%, 100% { opacity: 1; text-shadow: 0 0 10px #00ffcc; }
+        50% { opacity: 0.4; text-shadow: none; }
+    }
+
+    /* Custom HTML Cyber Button */
+    .cyber-btn {
+        display: inline-block;
+        margin-top: 20px;
+        padding: 15px 40px;
+        background: rgba(0, 242, 254, 0.1);
+        color: #00f2fe !important;
+        font-family: 'Share Tech Mono', monospace;
+        font-size: 1.2rem;
+        font-weight: bold;
+        text-decoration: none;
+        border: 1px solid #00f2fe;
+        border-radius: 4px;
+        text-transform: uppercase;
+        letter-spacing: 2px;
+        transition: all 0.3s ease;
+        box-shadow: inset 0 0 10px rgba(0, 242, 254, 0.1), 0 0 15px rgba(0, 242, 254, 0.2);
+    }
+    
+    .cyber-btn:hover {
+        background: #00f2fe;
+        color: #050810 !important;
+        box-shadow: 0 0 30px rgba(0, 242, 254, 0.8);
+        transform: scale(1.05);
+    }
+
+    /* --- DASHBOARD STYLING --- */
+    .app-title-small { font-size: 2.5rem; font-weight: 900; background: linear-gradient(90deg, #00f2fe 0%, #4facfe 50%, #b06ab3 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; text-shadow: 0px 0px 15px rgba(0, 242, 254, 0.3); margin-bottom: 0px; text-transform: uppercase; }
+    [data-testid="stVerticalBlockBorderWrapper"] { border-radius: 12px !important; border: 1px solid rgba(0, 242, 254, 0.15) !important; background: rgba(15, 23, 42, 0.4) !important; backdrop-filter: blur(10px) !important; transition: all 0.2s ease-in-out; }
+    [data-testid="stVerticalBlockBorderWrapper"]:hover { border: 1px solid rgba(0, 242, 254, 0.5) !important; box-shadow: 0 0 20px rgba(0, 242, 254, 0.15); }
+    .tech-tag { background: rgba(0, 242, 254, 0.1); color: #00f2fe; padding: 4px 10px; border-radius: 4px; font-size: 0.8rem; font-weight: 700; border: 1px solid rgba(0, 242, 254, 0.3); margin-right: 8px; font-family: 'Share Tech Mono', monospace;}
+    .company-avatar { width: 60px; height: 60px; background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border: 2px solid #b06ab3; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.8rem; font-weight: bold; color: #b06ab3; box-shadow: 0 0 15px rgba(176, 106, 179, 0.4); margin: auto; }
     .stTabs [data-baseweb="tab-list"] { gap: 30px; }
     .stTabs [data-baseweb="tab"] { font-size: 1.1rem; font-weight: 700; color: #8892b0; }
     .stTabs [aria-selected="true"] { color: #00f2fe !important; border-bottom: 2px solid #00f2fe !important; text-shadow: 0 0 10px rgba(0, 242, 254, 0.5); }
@@ -56,7 +145,6 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, title TEXT, company TEXT, location TEXT, url TEXT, source TEXT, description TEXT, salary_amount TEXT, salary_type TEXT)''')
     conn.commit()
     conn.close()
-
 init_db()
 
 # ==========================================
@@ -86,8 +174,7 @@ def run_auto_job_engine():
     return new_count
 
 def extract_text_from_pdf(uploaded_file):
-    try:
-        return "".join([page.extract_text() + " " for page in PyPDF2.PdfReader(uploaded_file).pages]).lower()
+    try: return "".join([page.extract_text() + " " for page in PyPDF2.PdfReader(uploaded_file).pages]).lower()
     except: return ""
 
 def display_job_card(row):
@@ -96,36 +183,32 @@ def display_job_card(row):
         with col_icon:
             st.markdown(f"<div class='company-avatar'>{row['company'][0].upper() if row['company'] else 'X'}</div>", unsafe_allow_html=True)
         with col_details:
-            st.markdown(f"<h3 style='margin-bottom:0px; color:#fff;'>{row['title']}</h3>", unsafe_allow_html=True)
+            st.markdown(f"<h3 style='margin-bottom:0px; color:#ffffff;'>{row['title']}</h3>", unsafe_allow_html=True)
             st.markdown(f"<p style='color:#8892b0; font-size: 1.1rem; margin-top: 5px;'>{row['company']}</p>", unsafe_allow_html=True)
-            
             sal = f"{row['salary_amount']} / {row['salary_type']}" if row['salary_amount'] != "N/A" else "Unlisted"
             st.markdown(f"""
                 <span class='tech-tag'>LOC: {row['location']}</span>
                 <span class='tech-tag'>PAY: {sal}</span>
                 <span class='tech-tag'>SYS: {row['source']}</span>
             """, unsafe_allow_html=True)
-            
         with col_action:
-            st.write("")
             st.write("")
             st.link_button("INITIATE UPLINK", row['url'], use_container_width=True, type="primary")
         with st.expander("DECRYPT DATAFILE (View Description)"):
             st.write(row['description'])
 
 # ==========================================
-# 5. LOGIN SYSTEM
+# 5. LOGIN SYSTEM (THE NEW ENGAGING UI)
 # ==========================================
 if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
 if 'user_role' not in st.session_state: st.session_state['user_role'] = None
 if 'user_name' not in st.session_state: st.session_state['user_name'] = ""
 
 if not st.session_state['logged_in']:
-    st.markdown('<p class="app-title">NEURAL // JOBS</p>', unsafe_allow_html=True)
-    st.markdown('<p class="sub-title">System Secure. Enter credentials to access the AI talent grid.</p>', unsafe_allow_html=True)
     
+    # Process Google Authentication if redirected back
     if 'code' in st.query_params:
-        with st.spinner("Decryption in progress..."):
+        with st.spinner("Decrypting neural pathways..."):
             code = st.query_params['code']
             res = requests.post("https://oauth2.googleapis.com/token", data={"code": code, "client_id": CLIENT_ID, "client_secret": CLIENT_SECRET, "redirect_uri": REDIRECT_URI, "grant_type": "authorization_code"})
             if res.status_code == 200:
@@ -133,10 +216,30 @@ if not st.session_state['logged_in']:
                 st.session_state.update({'logged_in': True, 'user_name': user_data.get("name"), 'user_role': "admin" if user_data.get("email") in ADMIN_EMAILS else "seeker"})
                 st.query_params.clear()
                 st.rerun()
-            else: st.error("Access Denied. Invalid authorization protocols.")
+            else: 
+                st.error("Access Denied. Invalid authorization protocols.")
+
+    # Show the beautiful centered Login Card
     else:
         auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}&scope=openid%20email%20profile"
-        st.link_button("CONNECT WITH GOOGLE", auth_url, type="primary")
+        
+        # Use columns to center the UI
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            login_ui = f"""
+            <div class="login-wrapper">
+                <div class="login-card">
+                    <p class="system-status">[ SYSTEM STATUS: SECURE & ONLINE ]</p>
+                    <div class="app-title-large">NEURAL</div>
+                    <div class="app-title-large" style="font-size: 2.5rem; margin-bottom: 20px;">// TALENT GRID</div>
+                    <p style="color: #8892b0; font-size: 1.1rem; line-height: 1.5; margin-bottom: 30px;">
+                        The premier decentralized hub for Artificial Intelligence, Large Language Models, and Data Science operatives.
+                    </p>
+                    <a href="{auth_url}" class="cyber-btn" target="_self">CONNECT DATASTREAM</a>
+                </div>
+            </div>
+            """
+            st.markdown(login_ui, unsafe_allow_html=True)
 
 # ==========================================
 # 6. MAIN APP DASHBOARDS
@@ -144,8 +247,8 @@ if not st.session_state['logged_in']:
 else:
     col_logo, col_logout = st.columns([8, 1])
     with col_logo: 
-        st.markdown('<p class="app-title">NEURAL // JOBS</p>', unsafe_allow_html=True)
-        st.markdown(f'<p class="sub-title">Uplink established. Operator: {st.session_state["user_name"]}</p>', unsafe_allow_html=True)
+        st.markdown('<p class="app-title-small">NEURAL // JOBS</p>', unsafe_allow_html=True)
+        st.markdown(f'<p style="color: #00ffcc; font-family: \'Share Tech Mono\', monospace; margin-top: -5px;">> Uplink established. Operator: {st.session_state["user_name"]}</p>', unsafe_allow_html=True)
     with col_logout:
         st.write("") 
         if st.button("DISCONNECT"):
