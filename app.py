@@ -59,7 +59,7 @@ def apply_futuristic_css():
 apply_futuristic_css()
 
 # ==========================================
-# 3. DATABASE SETUP (With Auto-Upgrades)
+# 3. DATABASE SETUP 
 # ==========================================
 USER_HOME = os.path.expanduser("~") 
 DB_PATH = os.path.join(USER_HOME, 'ai_jobs_production.db')
@@ -68,16 +68,22 @@ def init_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, title TEXT, company TEXT, location TEXT, url TEXT, source TEXT, description TEXT, salary_amount TEXT, salary_type TEXT)''')
-    try: c.execute("ALTER TABLE jobs ADD COLUMN date_added TEXT")
-    except sqlite3.OperationalError: pass
+    try: 
+        c.execute("ALTER TABLE jobs ADD COLUMN date_added TEXT")
+    except sqlite3.OperationalError: 
+        pass
     
     c.execute('''CREATE TABLE IF NOT EXISTS sys_settings (id INTEGER PRIMARY KEY, is_maintenance INTEGER, resume_time TEXT, message TEXT)''')
     c.execute("INSERT OR IGNORE INTO sys_settings (id, is_maintenance, resume_time, message) VALUES (1, 0, '', '')")
     
-    try: c.execute("ALTER TABLE sys_settings ADD COLUMN is_warning INTEGER DEFAULT 0")
-    except sqlite3.OperationalError: pass
-    try: c.execute("ALTER TABLE sys_settings ADD COLUMN warning_msg TEXT DEFAULT ''")
-    except sqlite3.OperationalError: pass
+    try: 
+        c.execute("ALTER TABLE sys_settings ADD COLUMN is_warning INTEGER DEFAULT 0")
+    except sqlite3.OperationalError: 
+        pass
+    try: 
+        c.execute("ALTER TABLE sys_settings ADD COLUMN warning_msg TEXT DEFAULT ''")
+    except sqlite3.OperationalError: 
+        pass
 
     conn.commit()
     conn.close()
@@ -99,10 +105,11 @@ def get_sys_status():
     if is_maint == 1 and res_time:
         if datetime.now() > datetime.strptime(res_time, "%Y-%m-%d %H:%M:%S"):
             conn = sqlite3.connect(DB_PATH)
-            conn.cursor().execute("UPDATE sys_settings SET is_maintenance=0, is_warning=0 WHERE id=1")
+            conn.cursor().execute("UPDATE sys_settings SET is_maintenance=0 WHERE id=1")
             conn.commit()
             conn.close()
-            return (0, "", "", 0, "")
+            return (0, "", "", is_warn, warn_msg)
+            
     return (is_maint, res_time, msg, is_warn, warn_msg)
 
 def clean_html(raw_html):
@@ -149,12 +156,13 @@ def run_auto_job_engine():
     return new_count
 
 def extract_text_from_pdf(uploaded_file):
-    try: return "".join([page.extract_text() + " " for page in PyPDF2.PdfReader(uploaded_file).pages]).lower()
-    except: return ""
+    try: 
+        return "".join([page.extract_text() + " " for page in PyPDF2.PdfReader(uploaded_file).pages]).lower()
+    except: 
+        return ""
 
 def display_job_card(row, is_admin=False):
     is_expired = False
-    # Use pandas to safely handle time comparisons
     if is_admin and pd.to_datetime(row['date_added']) < (pd.to_datetime('today') - timedelta(days=30)):
         is_expired = True
 
@@ -164,12 +172,16 @@ def display_job_card(row, is_admin=False):
             st.markdown(f"<div class='company-avatar'>{row['company'][0].upper() if row['company'] else 'X'}</div>", unsafe_allow_html=True)
         with col_details:
             title_html = f"<h3 style='margin-bottom:0px; color:#ffffff;'>{row['title']}</h3>"
-            if is_expired: title_html = f"<h3 style='margin-bottom:0px; color:#ff4757;'>[EXPIRED] {row['title']}</h3>"
+            if is_expired: 
+                title_html = f"<h3 style='margin-bottom:0px; color:#ff4757;'>[EXPIRED] {row['title']}</h3>"
             st.markdown(title_html, unsafe_allow_html=True)
             st.markdown(f"<p style='color:#8892b0; font-size: 1.1rem; margin-top: 5px;'>{row['company']}</p>", unsafe_allow_html=True)
             sal = f"{row['salary_amount']} / {row['salary_type']}" if row['salary_amount'] != "N/A" else "Unlisted"
-            date_str = str(row['date_added'])[:10]
-            st.markdown(f"<span class='tech-tag'>LOC: {row['location']}</span> <span class='tech-tag'>PAY: {sal}</span> <span class='tech-tag'>DATE: {date_str}</span>", unsafe_allow_html=True)
+            st.markdown(f"""
+                <span class='tech-tag'>LOC: {row['location']}</span>
+                <span class='tech-tag'>PAY: {sal}</span>
+                <span class='tech-tag'>SYS: {row['source']}</span>
+            """, unsafe_allow_html=True)
         with col_action:
             st.write("")
             st.link_button("INITIATE UPLINK", row['url'], use_container_width=True, type="primary")
@@ -183,7 +195,6 @@ if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
 if 'user_role' not in st.session_state: st.session_state['user_role'] = None
 if 'user_name' not in st.session_state: st.session_state['user_name'] = ""
 
-# 🛠️ FIX: Process Google Login FIRST before blocking anyone!
 if not st.session_state['logged_in'] and 'code' in st.query_params:
     with st.spinner("Decrypting neural pathways..."):
         code = st.query_params['code']
@@ -196,10 +207,8 @@ if not st.session_state['logged_in'] and 'code' in st.query_params:
         else: 
             st.error("Access Denied. Invalid authorization protocols.")
 
-# Get System Status
 is_maint, res_time, maint_msg, is_warn, warn_msg = get_sys_status()
 
-# 🛑 MAINTENANCE LOCKOUT (Only runs if you are NOT an Admin)
 if is_maint == 1 and st.session_state['user_role'] != "admin":
     auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}&scope=openid%20email%20profile"
     col1, col2, col3 = st.columns([1, 2, 1])
@@ -218,9 +227,8 @@ if is_maint == 1 and st.session_state['user_role'] != "admin":
             </div>
         </div>
         """, unsafe_allow_html=True)
-    st.stop() # Blocks normal users here!
+    st.stop() 
 
-# --- NORMAL LOGIN SCREEN ---
 if not st.session_state['logged_in']:
     auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}&scope=openid%20email%20profile"
     col1, col2, col3 = st.columns([1, 2, 1])
@@ -259,8 +267,11 @@ else:
     conn = sqlite3.connect(DB_PATH)
     df = pd.read_sql_query("SELECT * FROM jobs", conn)
     conn.close()
-    if 'date_added' in df.columns: df['date_added'] = pd.to_datetime(df['date_added'], errors='coerce').fillna(pd.to_datetime('today'))
-    else: df['date_added'] = pd.to_datetime('today')
+    
+    if 'date_added' in df.columns: 
+        df['date_added'] = pd.to_datetime(df['date_added'], errors='coerce').fillna(pd.to_datetime('today'))
+    else: 
+        df['date_added'] = pd.to_datetime('today')
 
     # --- ADMIN VIEW ---
     if st.session_state['user_role'] == "admin":
@@ -284,7 +295,6 @@ else:
         
         with tab4:
             st.markdown("#### Stage 1: Global Broadcast (Warning)")
-            st.write("Send a pulsing orange banner to all active users without turning the site off yet.")
             if is_warn == 0:
                 with st.form("warn_form"):
                     w_msg = st.text_input("Warning Message", value="System maintenance will begin in 15 minutes. Please save your work.")
@@ -304,7 +314,6 @@ else:
 
             st.write("---")
             st.markdown("#### Stage 2: System Lockdown (Maintenance)")
-            st.write("Activate this to kick everyone off the grid. Only you can log in.")
             if is_maint == 0:
                 with st.form("maint_form"):
                     downtime_hours = st.number_input("Hours of Downtime", min_value=1, max_value=48, value=2)
@@ -349,10 +358,12 @@ else:
                         st.success("Injection Successful.")
                         st.rerun()
         with tab3:
-            if df.empty: st.info("Grid empty. Run global scrape.")
+            if df.empty: 
+                st.info("Grid empty. Run global scrape.")
             else:
                 df = df.sort_values(by='date_added', ascending=False)
-                for _, row in df.iterrows(): display_job_card(row, is_admin=True)
+                for _, row in df.iterrows(): 
+                    display_job_card(row, is_admin=True)
 
     # --- SEEKER VIEW ---
     elif st.session_state['user_role'] == "seeker":
@@ -360,23 +371,26 @@ else:
         df_seeker = df[df['date_added'] >= thirty_days_ago].copy()
 
         tab_browse, tab_match = st.tabs(["[ GRID SEARCH ]", "[ AI OVERRIDE ]"])
+        
         with tab_browse:
-            col_search, col_time = st.columns([3, 1])
-            with col_search: search = st.text_input("QUERY DATABASE...", placeholder="Parameters: Python, OpenAI, Remote...")
-            with col_time: time_filter = st.selectbox("TIME RANGE", ["All Active", "Past 24 Hours", "Past 7 Days"])
+            search = st.text_input("QUERY DATABASE...", placeholder="Enter parameters: Python, Anthropic, LLM...")
             st.write("---")
-            if time_filter == "Past 24 Hours": df_seeker = df_seeker[df_seeker['date_added'] >= (pd.to_datetime('today') - timedelta(days=1))]
-            elif time_filter == "Past 7 Days": df_seeker = df_seeker[df_seeker['date_added'] >= (pd.to_datetime('today') - timedelta(days=7))]
-            if search: df_seeker = df_seeker[df_seeker['title'].str.contains(search, case=False) | df_seeker['company'].str.contains(search, case=False)]
+            
+            if search: 
+                df_seeker = df_seeker[df_seeker['title'].str.contains(search, case=False) | df_seeker['company'].str.contains(search, case=False)]
             
             df_seeker = df_seeker.sort_values(by='date_added', ascending=False)
-            if df_seeker.empty: st.info("No nodes match parameters.")
+            
+            if df_seeker.empty: 
+                st.info("No nodes match parameters.")
             else:
-                for _, row in df_seeker.iterrows(): display_job_card(row, is_admin=False)
+                for _, row in df_seeker.iterrows(): 
+                    display_job_card(row, is_admin=False)
                 
         with tab_match:
             with st.container(border=True):
                 uploaded_file = st.file_uploader("UPLOAD DATAPACK (PDF)", type="pdf")
+                
             if uploaded_file:
                 with st.spinner("Running neural analysis..."):
                     skills = [s for s in ['python', 'sql', 'react', 'java', 'ai', 'data', 'llm', 'machine learning', 'pytorch'] if s in extract_text_from_pdf(uploaded_file)]
@@ -384,158 +398,12 @@ else:
                         st.success(f"**Parameters Found:** {', '.join(skills).title()}")
                         st.write("---")
                         matched = df_seeker[df_seeker['title'].str.lower().str.contains('|'.join(skills))]
+                        
                         if not matched.empty:
                             st.markdown(f"#### >>> MATCHES FOUND ({len(matched)}):")
-                            for _, row in matched.head(10).iterrows(): display_job_card(row, is_admin=False)
-                        else: st.info("No matching active nodes currently active.")
-                    else: st.warning("Analysis failed. No valid parameters detected.")
-# ==========================================
-# 6. MAIN APP DASHBOARDS
-# ==========================================
-else:
-    if is_warn == 1:
-        st.markdown(f"<div class='cyber-warning-banner'>⚠️ SYSTEM NOTICE: {warn_msg}</div>", unsafe_allow_html=True)
-
-    col_logo, col_logout = st.columns([8, 1])
-    with col_logo: 
-        st.markdown('<p class="app-title-small">NEURAL // JOBS</p>', unsafe_allow_html=True)
-        st.markdown(f'<p style="color: #00ffcc; font-family: \'Share Tech Mono\', monospace; margin-top: -5px;">> Uplink established. Operator: {st.session_state["user_name"]}</p>', unsafe_allow_html=True)
-    with col_logout:
-        st.write("") 
-        if st.button("DISCONNECT"):
-            st.session_state.update({'logged_in': False, 'user_role': None, 'user_name': ""})
-            st.rerun()
-
-    conn = sqlite3.connect(DB_PATH)
-    df = pd.read_sql_query("SELECT * FROM jobs", conn)
-    conn.close()
-    if 'date_added' in df.columns: df['date_added'] = pd.to_datetime(df['date_added'], errors='coerce').fillna(pd.to_datetime('today'))
-    else: df['date_added'] = pd.to_datetime('today')
-
-    # --- ADMIN VIEW ---
-    if st.session_state['user_role'] == "admin":
-        st.markdown("### [ GRID METRICS ]")
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("TOTAL DATANODES", len(df))
-        m2.metric("API FEEDS", len(df[df['source'] != 'Manual']) if not df.empty else 0)
-        m3.metric("MANUAL INSERTS", len(df[df['source'] == 'Manual']) if not df.empty else 0)
-        
-        if is_maint == 1:
-            m4.metric("SYSTEM STATUS", "MAINTENANCE")
-            st.error(f"⚠️ SITE IS OFFLINE FOR USERS. Auto-resumes at: {res_time}")
-        elif is_warn == 1:
-            m4.metric("SYSTEM STATUS", "WARNING ACTIVE")
-        else:
-            m4.metric("SYSTEM STATUS", "ONLINE")
-            
-        st.write("---")
-
-        tab1, tab2, tab3, tab4 = st.tabs(["[ RUN ENGINE ]", "[ INJECT DATA ]", "[ NODE LIST ]", "[ ⚙️ SYS CONTROLS ]"])
-        
-        with tab4:
-            st.markdown("#### Stage 1: Global Broadcast (Warning)")
-            st.write("Send a pulsing orange banner to all active users without turning the site off yet.")
-            if is_warn == 0:
-                with st.form("warn_form"):
-                    w_msg = st.text_input("Warning Message", value="System maintenance will begin in 15 minutes. Please save your work.")
-                    if st.form_submit_button("📢 BROADCAST WARNING"):
-                        conn = sqlite3.connect(DB_PATH)
-                        conn.cursor().execute("UPDATE sys_settings SET is_warning=?, warning_msg=? WHERE id=1", (1, w_msg))
-                        conn.commit()
-                        conn.close()
-                        st.rerun()
-            else:
-                if st.button("🔇 CLEAR WARNING"):
-                    conn = sqlite3.connect(DB_PATH)
-                    conn.cursor().execute("UPDATE sys_settings SET is_warning=0, warning_msg='' WHERE id=1")
-                    conn.commit()
-                    conn.close()
-                    st.rerun()
-
-            st.write("---")
-            st.markdown("#### Stage 2: System Lockdown (Maintenance)")
-            st.write("Activate this to kick everyone off the grid. Only you can log in.")
-            if is_maint == 0:
-                with st.form("maint_form"):
-                    downtime_hours = st.number_input("Hours of Downtime", min_value=1, max_value=48, value=2)
-                    m_msg = st.text_input("Lockdown Message", value="We are upgrading the core neural network. Stand by.")
-                    if st.form_submit_button("🚨 INITIATE LOCKDOWN", type="primary"):
-                        resume_calc = (datetime.now() + timedelta(hours=downtime_hours)).strftime("%Y-%m-%d %H:%M:%S")
-                        conn = sqlite3.connect(DB_PATH)
-                        conn.cursor().execute("UPDATE sys_settings SET is_maintenance=?, resume_time=?, message=? WHERE id=1", (1, resume_calc, m_msg))
-                        conn.commit()
-                        conn.close()
-                        st.rerun()
-            else:
-                if st.button("✅ DEACTIVATE LOCKDOWN"):
-                    conn = sqlite3.connect(DB_PATH)
-                    conn.cursor().execute("UPDATE sys_settings SET is_maintenance=0 WHERE id=1")
-                    conn.commit()
-                    conn.close()
-                    st.rerun()
-
-        with tab1:
-            if st.button(">>> INITIATE GLOBAL SCRAPE", type="primary", use_container_width=True):
-                with st.spinner("Extracting web data..."):
-                    st.success(f"Successfully extracted {run_auto_job_engine()} new nodes!")
-                    st.rerun()
-        with tab2:
-            with st.container(border=True):
-                with st.form("manual"):
-                    m_title = st.text_input("Job Title")
-                    m_company = st.text_input("Entity / Company")
-                    c1, c2 = st.columns(2)
-                    with c1: m_sal_amount = st.text_input("Compensation")
-                    with c2: m_sal_type = st.selectbox("Cycle", ["Yearly", "Monthly", "Hourly", "Unspecified"])
-                    m_url = st.text_input("Uplink URL")
-                    m_desc = st.text_area("File Contents")
-                    if st.form_submit_button("INJECT NODE", type="primary"):
-                        conn = sqlite3.connect(DB_PATH)
-                        today_str = datetime.now().strftime("%Y-%m-%d")
-                        conn.cursor().execute("INSERT INTO jobs (id, title, company, location, url, source, description, salary_amount, salary_type, date_added) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                                              ("MAN_"+str(uuid.uuid4())[:8], m_title, m_company, "Remote", m_url, "Manual", m_desc or "No desc", m_sal_amount or "N/A", m_sal_type, today_str))
-                        conn.commit()
-                        conn.close()
-                        st.success("Injection Successful.")
-                        st.rerun()
-        with tab3:
-            if df.empty: st.info("Grid empty. Run global scrape.")
-            else:
-                df = df.sort_values(by='date_added', ascending=False)
-                for _, row in df.iterrows(): display_job_card(row, is_admin=True)
-
-    # --- SEEKER VIEW ---
-    elif st.session_state['user_role'] == "seeker":
-        thirty_days_ago = pd.to_datetime('today') - timedelta(days=30)
-        df_seeker = df[df['date_added'] >= thirty_days_ago].copy()
-
-        tab_browse, tab_match = st.tabs(["[ GRID SEARCH ]", "[ AI OVERRIDE ]"])
-        with tab_browse:
-            col_search, col_time = st.columns([3, 1])
-            with col_search: search = st.text_input("QUERY DATABASE...", placeholder="Parameters: Python, OpenAI, Remote...")
-            with col_time: time_filter = st.selectbox("TIME RANGE", ["All Active", "Past 24 Hours", "Past 7 Days"])
-            st.write("---")
-            if time_filter == "Past 24 Hours": df_seeker = df_seeker[df_seeker['date_added'] >= (pd.to_datetime('today') - timedelta(days=1))]
-            elif time_filter == "Past 7 Days": df_seeker = df_seeker[df_seeker['date_added'] >= (pd.to_datetime('today') - timedelta(days=7))]
-            if search: df_seeker = df_seeker[df_seeker['title'].str.contains(search, case=False) | df_seeker['company'].str.contains(search, case=False)]
-            
-            df_seeker = df_seeker.sort_values(by='date_added', ascending=False)
-            if df_seeker.empty: st.info("No nodes match parameters.")
-            else:
-                for _, row in df_seeker.iterrows(): display_job_card(row, is_admin=False)
-                
-        with tab_match:
-            with st.container(border=True):
-                uploaded_file = st.file_uploader("UPLOAD DATAPACK (PDF)", type="pdf")
-            if uploaded_file:
-                with st.spinner("Running neural analysis..."):
-                    skills = [s for s in ['python', 'sql', 'react', 'java', 'ai', 'data', 'llm', 'machine learning', 'pytorch'] if s in extract_text_from_pdf(uploaded_file)]
-                    if skills:
-                        st.success(f"**Parameters Found:** {', '.join(skills).title()}")
-                        st.write("---")
-                        matched = df_seeker[df_seeker['title'].str.lower().str.contains('|'.join(skills))]
-                        if not matched.empty:
-                            st.markdown(f"#### >>> MATCHES FOUND ({len(matched)}):")
-                            for _, row in matched.head(10).iterrows(): display_job_card(row, is_admin=False)
-                        else: st.info("No matching active nodes currently active.")
-                    else: st.warning("Analysis failed. No valid parameters detected.")
+                            for _, row in matched.head(10).iterrows(): 
+                                display_job_card(row, is_admin=False)
+                        else: 
+                            st.info("No matching active nodes currently active.")
+                    else: 
+                        st.warning("Analysis failed. No valid parameters detected.")
