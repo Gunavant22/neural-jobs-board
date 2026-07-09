@@ -59,7 +59,7 @@ def apply_futuristic_css():
 apply_futuristic_css()
 
 # ==========================================
-# 3. DATABASE SETUP 
+# 3. DATABASE SETUP
 # ==========================================
 USER_HOME = os.path.expanduser("~") 
 DB_PATH = os.path.join(USER_HOME, 'ai_jobs_production.db')
@@ -200,7 +200,7 @@ is_maint, res_time, maint_msg, is_warn, warn_msg = get_sys_status()
 # 🛑 MAINTENANCE LOCKOUT LOGIC 🛑
 if is_maint == 1 and st.session_state['user_role'] != "admin":
     
-    # 🤡 THE MEME TRAP: If a normal user managed to log in during lockdown!
+    # 🤡 THE MEME TRAP
     if st.session_state['logged_in']:
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
@@ -214,12 +214,12 @@ if is_maint == 1 and st.session_state['user_role'] != "admin":
             </div>
             """, unsafe_allow_html=True)
             st.write("")
-            if st.button("RETREAT (Disconnect)"):
+            if st.button("RETREAT (Disconnect)", use_container_width=True):
                 st.session_state.update({'logged_in': False, 'user_role': None, 'user_name': ""})
                 st.rerun()
         st.stop()
         
-    # Standard Red Lockdown Screen (If not logged in yet)
+    # Standard Red Lockdown Screen
     else:
         auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}&scope=openid%20email%20profile"
         col1, col2, col3 = st.columns([1, 2, 1])
@@ -272,7 +272,7 @@ else:
         st.markdown(f'<p style="color: #00ffcc; font-family: \'Share Tech Mono\', monospace; margin-top: -5px;">> Uplink established. Operator: {st.session_state["user_name"]}</p>', unsafe_allow_html=True)
     with col_logout:
         st.write("") 
-        if st.button("DISCONNECT"):
+        if st.button("DISCONNECT", use_container_width=True):
             st.session_state.update({'logged_in': False, 'user_role': None, 'user_name': ""})
             st.rerun()
 
@@ -349,23 +349,36 @@ else:
                     st.rerun()
         with tab2:
             with st.container(border=True):
-                with st.form("manual"):
-                    m_title = st.text_input("Job Title")
-                    m_company = st.text_input("Entity / Company")
-                    c1, c2 = st.columns(2)
-                    with c1: m_sal_amount = st.text_input("Compensation")
-                    with c2: m_sal_type = st.selectbox("Cycle", ["Yearly", "Monthly", "Hourly", "Unspecified"])
-                    m_url = st.text_input("Uplink URL")
-                    m_desc = st.text_area("File Contents")
-                    if st.form_submit_button("INJECT NODE", type="primary"):
+                st.markdown("#### INJECT MANUAL NODE")
+                m_title = st.text_input("Job Title")
+                m_company = st.text_input("Entity / Company")
+                
+                # --- DYNAMIC REMOTE TOGGLE ---
+                m_is_remote = st.radio("Is this a Remote position?", ["Yes", "No"], horizontal=True)
+                if m_is_remote == "No":
+                    m_location = st.text_input("Specify Location (e.g. San Francisco, CA / On-site)")
+                else:
+                    m_location = "Remote"
+                
+                c1, c2 = st.columns(2)
+                with c1: m_sal_amount = st.text_input("Compensation")
+                with c2: m_sal_type = st.selectbox("Cycle", ["Yearly", "Monthly", "Hourly", "Unspecified"])
+                m_url = st.text_input("Uplink URL")
+                m_desc = st.text_area("File Contents")
+                
+                if st.button("INJECT NODE", type="primary", use_container_width=True):
+                    if m_title and m_company and m_url:
                         conn = sqlite3.connect(DB_PATH)
                         today_str = datetime.now().strftime("%Y-%m-%d")
                         conn.cursor().execute("INSERT INTO jobs (id, title, company, location, url, source, description, salary_amount, salary_type, date_added) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                                              ("MAN_"+str(uuid.uuid4())[:8], m_title, m_company, "Remote", m_url, "Manual", m_desc or "No desc", m_sal_amount or "N/A", m_sal_type, today_str))
+                                              ("MAN_"+str(uuid.uuid4())[:8], m_title, m_company, m_location, m_url, "Manual", m_desc or "No desc", m_sal_amount or "N/A", m_sal_type, today_str))
                         conn.commit()
                         conn.close()
                         st.success("Injection Successful.")
                         st.rerun()
+                    else:
+                        st.error("SYSTEM ERROR: Title, Company, and URL are required.")
+                        
         with tab3:
             if df.empty: st.info("Grid empty. Run global scrape.")
             else:
