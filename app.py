@@ -266,6 +266,9 @@ if 'show_bulk_purge' not in st.session_state: st.session_state['show_bulk_purge'
 if 'draft_job' not in st.session_state: st.session_state['draft_job'] = None
 if 'last_heartbeat' not in st.session_state: st.session_state['last_heartbeat'] = datetime.min
 
+# RESTORED: Fetches is_maint, res_time, etc. to prevent NameError inside app main process
+is_maint, res_time, maint_msg, is_warn, warn_msg = get_sys_status()
+
 # Secure dynamic token generation for state
 state_token = generate_state_token(CLIENT_SECRET)
 auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}&scope=openid%20email%20profile&state={state_token}"
@@ -379,6 +382,10 @@ else:
         if st.button("DISCONNECT", use_container_width=True):
             st.session_state.update({'logged_in': False, 'user_role': None, 'user_name': "", "user_email": ""})
             st.rerun()
+
+    df = execute_query("SELECT * FROM jobs", fetch=True)
+    if 'date_added' in df.columns: df['date_added'] = pd.to_datetime(df['date_added'], errors='coerce').fillna(pd.to_datetime('today'))
+    else: df['date_added'] = pd.to_datetime('today')
 
     # --- ADMIN VIEW ---
     if st.session_state['user_role'] == "admin":
@@ -498,50 +505,31 @@ else:
                 with cb1: st.button("🚀 INJECT NODE", type="primary", use_container_width=True, on_click=inject_man)
                 with cb2: st.button("🧹 CLEAR ALL", use_container_width=True, on_click=clear_manual)
 
-        # 🧠 AUTO-URL IMPORTER (Bypasses bot blocks via Jina AI)
         if tab_ai:
             with tab_ai:
-                st.markdown("#### 🧠 Auto-URL Importer (Gemini AI)")
+                st.markdown("#### 🧠 Free Gemini AI Importer")
                 if st.session_state['draft_job'] is None:
-                    st.write("Paste the job URL below. The system will automatically bypass bot-protections, read the page, and decipher the job details.")
-                    ai_target_url = st.text_input("Target Apply URL", placeholder="https://work.mercor.com/explore?...")
-                    raw_messy_text = st.text_area("Fallback: Paste raw text here ONLY if the URL fetch fails", height=100)
-                    
-                    if st.button("🧠 FETCH & DECIPHER", type="primary", use_container_width=True):
-                        if ai_target_url or raw_messy_text:
-                            with st.spinner("Initiating sequence..."):
-                                text_to_analyze = raw_messy_text
-                                
-                                # Fetch from URL if text box is empty
-                                if not text_to_analyze and ai_target_url:
-                                    st.toast("🌐 Fetching URL via Jina AI Reader...")
-                                    try:
-                                        res = requests.get(f"https://r.jina.ai/{ai_target_url}")
-                                        if res.status_code == 200:
-                                            text_to_analyze = res.text
-                                        else:
-                                            st.error(f"Firewall Blocked URL (Error {res.status_code}). Please copy-paste the text manually.")
-                                    except Exception as e:
-                                        st.error(f"Fetch failed: {e}")
-                                
-                                if text_to_analyze:
-                                    st.toast("🧠 Gemini 1.5 Flash processing data...")
-                                    try:
-                                        model = genai.GenerativeModel("gemini-1.5-flash")
-                                        prompt = f"""
-                                        Analyze this webpage text:
-                                        {text_to_analyze[:4000]}
-                                        Extract and format exactly into JSON. Return ONLY raw JSON text:
-                                        {{ "title": "Job Title", "company": "Company", "location": "City or 'Remote'", "description": "4-sentence professional summary.", "salary_amount": "Amount or 'N/A'", "salary_type": "Yearly/Monthly/Hourly/Unspecified" }}
-                                        """
-                                        response = model.generate_content(prompt)
-                                        ai_output = response.text.strip().replace('```json', '').replace('```', '')
-                                        parsed = json.loads(ai_output.strip())
-                                        parsed['url'] = ai_target_url
-                                        st.session_state['draft_job'] = parsed
-                                        st.rerun()
-                                    except Exception as e: st.error(f"Decipher failed: {e}")
-                        else: st.warning("Paste a URL or raw text.")
+                    raw_messy_text = st.text_area("Paste Messy Webpage Text", height=200)
+                    ai_target_url = st.text_input("Target Apply URL")
+                    if st.button("🧠 DECIPHER RAW DATA", type="primary", use_container_width=True):
+                        if raw_messy_text and ai_target_url:
+                            with st.spinner("Gemini 1.5 Flash Deciphering data..."):
+                                try:
+                                    model = genai.GenerativeModel("gemini-1.5-flash")
+                                    prompt = f"""
+                                    Analyze this messy webpage text:
+                                    {raw_messy_text[:4000]}
+                                    Extract and format exactly into JSON. Return ONLY raw JSON text:
+                                    {{ "title": "Job Title", "company": "Company", "location": "City or 'Remote'", "description": "4-sentence professional summary.", "salary_amount": "Amount or 'N/A'", "salary_type": "Yearly/Monthly/Hourly/Unspecified" }}
+                                    """
+                                    response = model.generate_content(prompt)
+                                    ai_output = response.text.strip().replace('```json', '').replace('```', '')
+                                    parsed = json.loads(ai_output.strip())
+                                    parsed['url'] = ai_target_url
+                                    st.session_state['draft_job'] = parsed
+                                    st.rerun()
+                                except Exception as e: st.error(f"Decipher failed: {e}")
+                        else: st.warning("Paste text and URL.")
                 else:
                     st.warning("⚠️ DRAFT DECIPHERED. Edit and confirm below.")
                     with st.container(border=True):
