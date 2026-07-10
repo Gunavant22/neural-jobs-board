@@ -42,28 +42,26 @@ def apply_futuristic_css():
     * { font-family: 'Outfit', sans-serif; }
     #MainMenu, footer, header {visibility: hidden;}
     .stApp { background-color: #050810; background-image: linear-gradient(rgba(0, 242, 254, 0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(0, 242, 254, 0.03) 1px, transparent 1px); background-size: 30px 30px; background-position: center center; }
-    .login-wrapper { display: flex; flex-direction: column; align-items: center; justify-content: center; margin-top: 5vh; animation: float 6s ease-in-out infinite; }
-    @keyframes float { 0% { transform: translateY(0px); } 50% { transform: translateY(-10px); } 100% { transform: translateY(0px); } }
-    .login-card { background: linear-gradient(145deg, rgba(15, 23, 42, 0.7) 0%, rgba(20, 20, 30, 0.5) 100%); border: 1px solid rgba(0, 242, 254, 0.3); border-radius: 20px; padding: 40px 30px; box-shadow: 0 0 40px rgba(0, 242, 254, 0.1); text-align: center; backdrop-filter: blur(16px); width: 100%; max-width: 500px; transition: all 0.5s ease;}
+    .login-wrapper { display: flex; flex-direction: column; align-items: center; justify-content: center; margin-top: 10vh; animation: float 6s ease-in-out infinite; }
+    @keyframes float { 0% { transform: translateY(0px); } 50% { transform: translateY(-15px); } 100% { transform: translateY(0px); } }
+    .login-card { background: linear-gradient(145deg, rgba(15, 23, 42, 0.7) 0%, rgba(20, 20, 30, 0.5) 100%); border: 1px solid rgba(0, 242, 254, 0.3); border-radius: 20px; padding: 50px 40px; box-shadow: 0 0 40px rgba(0, 242, 254, 0.1); text-align: center; backdrop-filter: blur(16px); width: 100%; max-width: 500px; transition: all 0.5s ease;}
     .maintenance-card { border: 1px solid rgba(255, 71, 87, 0.5) !important; box-shadow: 0 0 50px rgba(255, 71, 87, 0.2) !important; }
-    .app-title-large { font-size: 3rem; font-weight: 900; background: linear-gradient(90deg, #00f2fe 0%, #4facfe 50%, #b06ab3 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; text-shadow: 0px 0px 25px rgba(0, 242, 254, 0.5); letter-spacing: -2px; margin-bottom: 5px; line-height: 1.1; }
+    .app-title-large { font-size: 4rem; font-weight: 900; background: linear-gradient(90deg, #00f2fe 0%, #4facfe 50%, #b06ab3 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; text-shadow: 0px 0px 25px rgba(0, 242, 254, 0.5); letter-spacing: -2px; margin-bottom: 5px; line-height: 1.1; }
     .app-title-maintenance { color: #ff4757 !important; background: none !important; -webkit-text-fill-color: #ff4757 !important; text-shadow: 0px 0px 25px rgba(255, 71, 87, 0.8) !important;}
-    .system-status { font-family: 'Share Tech Mono', monospace; color: #00ffcc; font-size: 0.8rem; margin-bottom: 15px; animation: blink 2s linear infinite; }
+    .system-status { font-family: 'Share Tech Mono', monospace; color: #00ffcc; font-size: 0.9rem; margin-bottom: 25px; animation: blink 2s linear infinite; }
     .system-status-offline { color: #ff4757 !important; text-shadow: 0 0 10px #ff4757 !important; }
     @keyframes blink { 0%, 100% { opacity: 1; text-shadow: 0 0 10px #00ffcc; } 50% { opacity: 0.4; text-shadow: none; } }
-    .cyber-btn { position: relative; z-index: 999; cursor: pointer; display: inline-block; margin-top: 20px; padding: 15px 40px; background: rgba(0, 242, 254, 0.1); color: #00f2fe !important; font-family: 'Share Tech Mono', monospace; font-size: 1.2rem; font-weight: bold; text-decoration: none; border: 1px solid #00f2fe; border-radius: 4px; text-transform: uppercase; letter-spacing: 2px; transition: all 0.3s ease; box-shadow: inset 0 0 10px rgba(0, 242, 254, 0.1), 0 0 15px rgba(0, 242, 254, 0.2); }
+    .cyber-btn { display: inline-block; margin-top: 20px; padding: 15px 40px; background: rgba(0, 242, 254, 0.1); color: #00f2fe !important; font-family: 'Share Tech Mono', monospace; font-size: 1.2rem; font-weight: bold; text-decoration: none; border: 1px solid #00f2fe; border-radius: 4px; text-transform: uppercase; letter-spacing: 2px; transition: all 0.3s ease; box-shadow: inset 0 0 10px rgba(0, 242, 254, 0.1), 0 0 15px rgba(0, 242, 254, 0.2); }
     .cyber-btn:hover { background: #00f2fe; color: #050810 !important; box-shadow: 0 0 30px rgba(0, 242, 254, 0.8); transform: scale(1.05); }
     .admin-bypass-btn { margin-top: 15px; font-size: 0.8rem !important; border: 1px solid #ff4757 !important; color: #ff4757 !important; background: transparent !important; box-shadow: none !important;}
     .admin-bypass-btn:hover { background: #ff4757 !important; color: white !important; box-shadow: 0 0 20px #ff4757 !important; }
     .app-title-small { font-size: 2.5rem; font-weight: 900; background: linear-gradient(90deg, #00f2fe 0%, #4facfe 50%, #b06ab3 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; text-shadow: 0px 0px 15px rgba(0, 242, 254, 0.3); margin-bottom: 0px; text-transform: uppercase; }
     .cyber-warning-banner { background: rgba(255, 165, 2, 0.1); border: 1px solid #ffa502; color: #ffa502; padding: 12px; border-radius: 5px; text-align: center; font-family: 'Share Tech Mono', monospace; font-weight: bold; margin-bottom: 20px; box-shadow: 0 0 10px rgba(255, 165, 2, 0.2); animation: pulse-warn 2s infinite; letter-spacing: 1px;}
     @keyframes pulse-warn { 0% { box-shadow: 0 0 10px rgba(255, 165, 2, 0.2); } 50% { box-shadow: 0 0 20px rgba(255, 165, 2, 0.5); } 100% { box-shadow: 0 0 10px rgba(255, 165, 2, 0.2); } }
-    [data-testid="stVerticalBlockBorderWrapper"] { border-radius: 12px !important; border: 1px solid rgba(0, 242, 254, 0.15) !important; background: rgba(15, 23, 42, 0.4) !important; backdrop-filter: blur(10px) !important; transition: all 0.2s ease-in-out; margin-bottom: 15px; }
+    [data-testid="stVerticalBlockBorderWrapper"] { border-radius: 12px !important; border: 1px solid rgba(0, 242, 254, 0.15) !important; background: rgba(15, 23, 42, 0.4) !important; backdrop-filter: blur(10px) !important; transition: all 0.2s ease-in-out; }
     [data-testid="stVerticalBlockBorderWrapper"]:hover { border: 1px solid rgba(0, 242, 254, 0.5) !important; box-shadow: 0 0 20px rgba(0, 242, 254, 0.15); }
     .tech-tag { background: rgba(0, 242, 254, 0.1); color: #00f2fe; padding: 4px 10px; border-radius: 4px; font-size: 0.8rem; font-weight: 700; border: 1px solid rgba(0, 242, 254, 0.3); margin-right: 8px; font-family: 'Share Tech Mono', monospace;}
-    .tech-tag-redacted { background: rgba(255, 71, 87, 0.1); color: #ff4757; padding: 4px 10px; border-radius: 4px; font-size: 0.8rem; font-weight: 700; border: 1px solid rgba(255, 71, 87, 0.3); margin-right: 8px; font-family: 'Share Tech Mono', monospace;}
-    .company-avatar { width: 50px; height: 50px; background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border: 2px solid #b06ab3; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; font-weight: bold; color: #b06ab3; box-shadow: 0 0 15px rgba(176, 106, 179, 0.4); margin: auto; }
-    .company-avatar-locked { border: 2px solid #ff4757; color: #ff4757; box-shadow: 0 0 15px rgba(255, 71, 87, 0.4); }
+    .company-avatar { width: 60px; height: 60px; background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border: 2px solid #b06ab3; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.8rem; font-weight: bold; color: #b06ab3; box-shadow: 0 0 15px rgba(176, 106, 179, 0.4); margin: auto; }
     .stTabs [data-baseweb="tab-list"] { gap: 30px; }
     .stTabs [data-baseweb="tab"] { font-size: 1.1rem; font-weight: 700; color: #8892b0; }
     .stTabs [aria-selected="true"] { color: #00f2fe !important; border-bottom: 2px solid #00f2fe !important; text-shadow: 0 0 10px rgba(0, 242, 254, 0.5); }
@@ -93,30 +91,23 @@ init_db()
 # ==========================================
 # 4. HELPER FUNCTIONS
 # ==========================================
-def fetch_dataframe(query, params=None):
-    """🛠️ CRASH-PROOF DB READER: Safely fetches data without Segfaults!"""
+def get_sys_status():
     conn = psycopg2.connect(DB_URL)
     c = conn.cursor()
-    if params: c.execute(query, params)
-    else: c.execute(query)
-    rows = c.fetchall()
-    cols = [desc[0] for desc in c.description] if c.description else []
+    c.execute("SELECT is_maintenance, resume_time, message, is_warning, warning_msg FROM sys_settings WHERE id=1")
+    row = c.fetchone()
     conn.close()
-    return pd.DataFrame(rows, columns=cols)
-
-def get_sys_status():
-    df = fetch_dataframe("SELECT is_maintenance, resume_time, message, is_warning, warning_msg FROM sys_settings WHERE id=1")
-    if not df.empty:
-        row = df.iloc[0]
-        is_maint, res_time, msg, is_warn, warn_msg = row['is_maintenance'], row['resume_time'], row['message'], row['is_warning'], row['warning_msg']
-        if is_maint == 1 and res_time and datetime.now() > datetime.strptime(res_time, "%Y-%m-%d %H:%M:%S"):
+    is_maint, res_time, msg, is_warn, warn_msg = row[0], row[1], row[2], row[3], row[4]
+    
+    if is_maint == 1 and res_time:
+        if datetime.now() > datetime.strptime(res_time, "%Y-%m-%d %H:%M:%S"):
             conn = psycopg2.connect(DB_URL)
-            conn.cursor().execute("UPDATE sys_settings SET is_maintenance=0, is_warning=0 WHERE id=1")
+            c = conn.cursor()
+            c.execute("UPDATE sys_settings SET is_maintenance=0, is_warning=0 WHERE id=1")
             conn.commit()
             conn.close()
             return (0, "", "", 0, "")
-        return (is_maint, res_time, msg, is_warn, warn_msg)
-    return (0, "", "", 0, "")
+    return (is_maint, res_time, msg, is_warn, warn_msg)
 
 def purge_resume_data(email):
     try:
@@ -139,44 +130,32 @@ def extract_text_from_pdf(uploaded_file):
     try: return "".join([page.extract_text() + " " for page in PyPDF2.PdfReader(uploaded_file).pages]).lower()
     except: return ""
 
-def display_job_card(row, is_admin=False, user_email=None, is_saved=False, is_teaser=False):
+def display_job_card(row, is_admin=False, user_email=None, is_saved=False):
     is_expired = False
     if is_admin and pd.to_datetime(row['date_added']) < (pd.to_datetime('today') - timedelta(days=30)): is_expired = True
 
-    sal_val = str(row['salary_amount']).strip()
-    if sal_val and sal_val.lower() not in ["n/a", ""]:
-        if not sal_val.startswith("$"): sal_val = "$" + sal_val
-        sal = f"{sal_val} / {row['salary_type']}"
-    else: sal = "Unlisted"
-
-    # --- TEASER MODE (Public Landing Page) ---
-    if is_teaser:
-        with st.container(border=True):
-            col_icon, col_details, col_action = st.columns([1, 7, 2])
-            with col_icon: st.markdown("<div class='company-avatar company-avatar-locked'>🔒</div>", unsafe_allow_html=True)
-            with col_details:
-                st.markdown(f"<h3 style='margin-bottom:0px; color:#ffffff;'>{row['title']}</h3>", unsafe_allow_html=True)
-                st.markdown("<p style='color:#ff4757; font-size: 1rem; margin-top: 5px;'>[ COMPANY REDACTED ]</p>", unsafe_allow_html=True)
-                st.markdown(f"<span class='tech-tag-redacted'>LOC: [ ENCRYPTED ]</span> <span class='tech-tag'>PAY: {sal}</span>", unsafe_allow_html=True)
-            with col_action:
-                st.write("")
-                st.markdown("<p style='color:#8892b0; font-size:0.8rem; text-align:center;'>Log in to decrypt link.</p>", unsafe_allow_html=True)
-        return
-
-    # --- NORMAL MODE (Logged In) ---
     with st.container(border=True):
         col_icon, col_details, col_action = st.columns([1, 7, 2])
-        with col_icon: st.markdown(f"<div class='company-avatar'>{row['company'][0].upper() if row['company'] else 'X'}</div>", unsafe_allow_html=True)
+        with col_icon:
+            st.markdown(f"<div class='company-avatar'>{row['company'][0].upper() if row['company'] else 'X'}</div>", unsafe_allow_html=True)
         with col_details:
             title_html = f"<h3 style='margin-bottom:0px; color:#ffffff;'>{row['title']}</h3>"
             if is_expired: title_html = f"<h3 style='margin-bottom:0px; color:#ff4757;'>[EXPIRED] {row['title']}</h3>"
             st.markdown(title_html, unsafe_allow_html=True)
-            st.markdown(f"<p style='color:#8892b0; font-size: 1rem; margin-top: 5px;'>{row['company']}</p>", unsafe_allow_html=True)
+            st.markdown(f"<p style='color:#8892b0; font-size: 1.1rem; margin-top: 5px;'>{row['company']}</p>", unsafe_allow_html=True)
+            
+            sal_val = str(row['salary_amount']).strip()
+            if sal_val and sal_val.lower() not in ["n/a", ""]:
+                if not sal_val.startswith("$"): sal_val = "$" + sal_val
+                sal = f"{sal_val} / {row['salary_type']}"
+            else: sal = "Unlisted"
+            
             date_str = str(row['date_added'])[:10]
             st.markdown(f"<span class='tech-tag'>LOC: {row['location']}</span> <span class='tech-tag'>PAY: {sal}</span> <span class='tech-tag'>DATE: {date_str}</span>", unsafe_allow_html=True)
         with col_action:
             st.write("")
             st.link_button("INITIATE UPLINK", row['url'], use_container_width=True, type="primary")
+            
             if not is_admin and user_email:
                 if is_saved:
                     if st.button("❌ REMOVE", key=f"unsave_{row['id']}", use_container_width=True):
@@ -209,7 +188,6 @@ if 'show_bulk_purge' not in st.session_state: st.session_state['show_bulk_purge'
 if 'draft_job' not in st.session_state: st.session_state['draft_job'] = None
 if 'last_heartbeat' not in st.session_state: st.session_state['last_heartbeat'] = datetime.min
 
-# Process Google Login First
 if not st.session_state['logged_in'] and 'code' in st.query_params:
     with st.spinner("Decrypting neural pathways..."):
         code = st.query_params['code']
@@ -240,7 +218,6 @@ if not st.session_state['logged_in'] and 'code' in st.query_params:
 
 is_maint, res_time, maint_msg, is_warn, warn_msg = get_sys_status()
 
-# 🛑 MAINTENANCE LOCKOUT LOGIC 🛑
 if is_maint == 1 and st.session_state['user_role'] != "admin":
     if st.session_state['logged_in']:
         col1, col2, col3 = st.columns([1, 2, 1])
@@ -279,43 +256,24 @@ if is_maint == 1 and st.session_state['user_role'] != "admin":
             """, unsafe_allow_html=True)
         st.stop() 
 
-# --- NEW PUBLIC LANDING PAGE (THE TEASER GRID) ---
 if not st.session_state['logged_in']:
     auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}&scope=openid%20email%20profile"
-    
-    col1, col2, col3 = st.columns([1, 3, 1])
+    col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         st.markdown(f"""
-        <div class="login-wrapper" style="margin-top: 2vh; margin-bottom: 3vh; animation: none;">
-            <div style="text-align: center;">
-                <p class="system-status" style="margin-bottom:5px;">[ PUBLIC ACCESS: LIMITED ]</p>
-                <div class="app-title-large" style="font-size: 3rem;">NEURAL</div>
-                <div class="app-title-large" style="font-size: 2rem; margin-bottom: 15px;">// TALENT GRID</div>
-                <p style="color: #8892b0; font-size: 1.1rem; line-height: 1.5; margin-bottom: 20px;">
-                    The premier decentralized hub for Artificial Intelligence, Large Language Models, and Data Science operatives.
-                </p>
-                <a href="{auth_url}" class="cyber-btn" target="_top">🔐 LOGIN TO UNLOCK</a>
+        <div class="login-wrapper">
+            <div class="login-card">
+                <p class="system-status">[ SYSTEM STATUS: SECURE & ONLINE ]</p>
+                <div class="app-title-large">NEURAL</div>
+                <div class="app-title-large" style="font-size: 2.5rem; margin-bottom: 20px;">// TALENT GRID</div>
+                <p style="color: #8892b0; font-size: 1.1rem; line-height: 1.5; margin-bottom: 30px;">The premier decentralized manual hub for Artificial Intelligence, Large Language Models, and Data Science operatives.</p>
+                <a href="{auth_url}" class="cyber-btn" target="_blank">CONNECT DATASTREAM</a>
             </div>
         </div>
         """, unsafe_allow_html=True)
-        
-    st.divider()
-    st.markdown("<h4 style='text-align: center; color: #8892b0; margin-bottom: 30px;'>[ RECENT ACTIVE NODES ]</h4>", unsafe_allow_html=True)
-    
-    df_public = fetch_dataframe("SELECT * FROM jobs")
-    if not df_public.empty:
-        if 'date_added' in df_public.columns: df_public['date_added'] = pd.to_datetime(df_public['date_added'], errors='coerce').fillna(pd.to_datetime('today'))
-        else: df_public['date_added'] = pd.to_datetime('today')
-        
-        thirty_days_ago = pd.to_datetime('today') - timedelta(days=30)
-        df_public = df_public[df_public['date_added'] >= thirty_days_ago]
-        df_public = df_public.sort_values(by='date_added', ascending=False).head(10)
-        
-        for _, row in df_public.iterrows(): display_job_card(row, is_admin=False, is_teaser=True)
-    else: st.info("Grid is currently initiating. Check back later for new uplinks.")
 
 # ==========================================
-# 6. MAIN APP DASHBOARDS (Logged In)
+# 6. MAIN APP DASHBOARDS
 # ==========================================
 else:
     if (datetime.now() - st.session_state['last_heartbeat']).total_seconds() > 60:
@@ -339,7 +297,9 @@ else:
             st.session_state.update({'logged_in': False, 'user_role': None, 'user_name': "", "user_email": ""})
             st.rerun()
 
-    df = fetch_dataframe("SELECT * FROM jobs")
+    conn = psycopg2.connect(DB_URL)
+    df = pd.read_sql_query("SELECT * FROM jobs", conn)
+    conn.close()
     if 'date_added' in df.columns: df['date_added'] = pd.to_datetime(df['date_added'], errors='coerce').fillna(pd.to_datetime('today'))
     else: df['date_added'] = pd.to_datetime('today')
 
@@ -368,7 +328,11 @@ else:
             
         with tab_analytics:
             st.markdown("#### Real-Time User Telemetry")
-            df_users = fetch_dataframe("SELECT email, name, role, total_logins, last_active FROM users ORDER BY last_active DESC")
+            st.write("Monitor network traffic, user engagement, and active sessions.")
+            conn = psycopg2.connect(DB_URL)
+            df_users = pd.read_sql_query("SELECT email, name, role, total_logins, last_active FROM users ORDER BY last_active DESC", conn)
+            conn.close()
+            
             if not df_users.empty:
                 df_users['last_active'] = pd.to_datetime(df_users['last_active'], errors='coerce')
                 five_mins_ago = pd.to_datetime('today') - timedelta(minutes=5)
@@ -387,7 +351,7 @@ else:
                 df_display = df_display[['Status', 'name', 'email', 'total_logins', 'Last Seen']]
                 df_display.columns = ['Status', 'Name', 'Email', 'Total Logins', 'Last Seen']
                 st.dataframe(df_display, use_container_width=True, hide_index=True)
-            else: st.info("No user telemetry data found.")
+            else: st.info("No user telemetry data found. Users need to log in to generate data.")
 
         with tab3:
             st.markdown("#### Stage 1: Global Broadcast (Warning)")
@@ -437,6 +401,7 @@ else:
             with st.container(border=True):
                 st.markdown("#### INJECT MANUAL NODE")
                 
+                # --- STATE MANAGEMENT LOGIC & CALLBACKS ---
                 if 'manual_url' not in st.session_state: st.session_state['manual_url'] = ""
                 if 'manual_desc' not in st.session_state: st.session_state['manual_desc'] = ""
                 if 'm_title' not in st.session_state: st.session_state['m_title'] = ""
@@ -483,7 +448,7 @@ else:
                 st.text_input("Entity / Company", key="m_company")
                 m_is_remote = st.radio("Is this a Remote position?", ["Yes", "No"], horizontal=True, key="m_is_remote")
                 if m_is_remote == "No":
-                    st.text_input("Specify Location", key="m_location")
+                    st.text_input("Specify Location (e.g. San Francisco, CA / On-site)", key="m_location")
                 
                 c1, c2 = st.columns(2)
                 with c1: st.text_input("Compensation (in USD $)", key="m_sal_amount")
@@ -534,7 +499,7 @@ else:
                                     parsed_json['url'] = ai_target_url
                                     st.session_state['draft_job'] = parsed_json
                                     st.rerun()
-                                except Exception as e: st.error(f"Gemini Decipher failed: Please try again. Error: {e}")
+                                except Exception as e: st.error(f"Gemini Decipher failed: {e}")
                         else: st.warning("Please paste the messy webpage text and add the apply URL.")
                 else:
                     st.warning("⚠️ DRAFT DECIPHERED. Please review, edit, and confirm the job details below before publishing.")
@@ -578,40 +543,46 @@ else:
 
         with tab_cand:
             st.markdown("#### Registered Candidate Mainframe")
-            df_cands = fetch_dataframe("SELECT user_email, skills_text, date_uploaded, resume_data FROM user_resumes ORDER BY date_uploaded DESC")
+            st.write("Browse candidates. Download raw resumes individually or compress them into a bulk ZIP package.")
+            st.write("---")
+            conn = psycopg2.connect(DB_URL)
+            c = conn.cursor()
+            c.execute("SELECT user_email, skills_text, date_uploaded, resume_data FROM user_resumes ORDER BY date_uploaded DESC")
+            candidates = c.fetchall()
+            conn.close()
+            active_resumes = [cand for cand in candidates if cand[3] is not None and len(cand[3]) > 0]
             
-            if not df_cands.empty:
-                active_resumes = df_cands.dropna(subset=['resume_data']).values.tolist()
+            if active_resumes:
+                st.markdown("### 📦 Bulk Datapack Extraction")
+                zip_data = generate_zip_datapack(active_resumes)
+                def trigger_bulk_purge_confirmation(): st.session_state['show_bulk_purge'] = True
+                st.download_button(label=f"💾 DOWNLOAD ALL RESUMES ({len(active_resumes)} FILES .ZIP)", data=zip_data, file_name=f"neural_grid_resumes_{datetime.now().strftime('%Y-%m-%d')}.zip", mime="application/zip", use_container_width=True, on_click=trigger_bulk_purge_confirmation, key="bulk_zip_dl")
                 
-                if active_resumes:
-                    st.markdown("### 📦 Bulk Datapack Extraction")
-                    zip_data = generate_zip_datapack(active_resumes)
-                    def trigger_bulk_purge_confirmation(): st.session_state['show_bulk_purge'] = True
-                    st.download_button(label=f"💾 DOWNLOAD ALL RESUMES ({len(active_resumes)} FILES .ZIP)", data=zip_data, file_name=f"neural_grid_resumes_{datetime.now().strftime('%Y-%m-%d')}.zip", mime="application/zip", use_container_width=True, on_click=trigger_bulk_purge_confirmation, key="bulk_zip_dl")
-                    
-                    if st.session_state['show_bulk_purge']:
-                        st.write("")
-                        st.warning("⚠️ DECRYPTION COMPLETE. Do you want to purge these raw PDF files from the cloud database now to reclaim storage space?")
-                        col_yes, col_no = st.columns(2)
-                        with col_yes:
-                            if st.button("🚨 YES, PURGE CLOUD STORAGE", type="primary", use_container_width=True):
-                                conn = psycopg2.connect(DB_URL)
-                                c = conn.cursor()
-                                c.execute("UPDATE user_resumes SET resume_data = NULL WHERE resume_data IS NOT NULL")
-                                conn.commit()
-                                conn.close()
-                                st.session_state['show_bulk_purge'] = False
-                                st.toast("🧹 Cloud storage successfully purged! Space reclaimed.")
-                                st.rerun()
-                        with col_no:
-                            if st.button("❌ NO, KEEP CLOUD COPIES", use_container_width=True):
-                                st.session_state['show_bulk_purge'] = False
-                                st.rerun()
-                    st.write("---")
-                
-                st.markdown("### 👤 Candidate Profiles")
-                for _, cand in df_cands.iterrows():
-                    email, skills_text, date_uploaded, resume_data = cand['user_email'], cand['skills_text'], cand['date_uploaded'], cand['resume_data']
+                if st.session_state['show_bulk_purge']:
+                    st.write("")
+                    st.warning("⚠️ DECRYPTION COMPLETE. Do you want to purge these raw PDF files from the cloud database now to reclaim storage space?")
+                    col_yes, col_no = st.columns(2)
+                    with col_yes:
+                        if st.button("🚨 YES, PURGE CLOUD STORAGE", type="primary", use_container_width=True):
+                            conn = psycopg2.connect(DB_URL)
+                            c = conn.cursor()
+                            c.execute("UPDATE user_resumes SET resume_data = NULL WHERE resume_data IS NOT NULL")
+                            conn.commit()
+                            conn.close()
+                            st.session_state['show_bulk_purge'] = False
+                            st.toast("🧹 Cloud storage successfully purged! Space reclaimed.")
+                            st.rerun()
+                    with col_no:
+                        if st.button("❌ NO, KEEP CLOUD COPIES", use_container_width=True):
+                            st.session_state['show_bulk_purge'] = False
+                            st.rerun()
+                st.write("---")
+            
+            st.markdown("### 👤 Candidate Profiles")
+            if not candidates: st.info("No candidates have uploaded their resumes to the neural grid yet.")
+            else:
+                for cand in candidates:
+                    email, skills_text, date_uploaded, resume_data = cand
                     with st.container(border=True):
                         col_info, col_dl = st.columns([4, 1])
                         with col_info:
@@ -623,8 +594,6 @@ else:
                             if resume_data is not None and len(resume_data) > 0:
                                 st.download_button(label="DOWNLOAD PDF 💾", data=bytes(resume_data), file_name=f"{email.split('@')[0]}_resume.pdf", mime="application/pdf", use_container_width=True, key=f"dl_{email}", on_click=purge_resume_data, args=(email,))
                             else: st.button("🧹 PURGED / SECURED", key=f"purged_{email}", disabled=True, use_container_width=True)
-            else:
-                st.info("No candidates have uploaded their resumes to the neural grid yet.")
 
         with tab2:
             if df.empty: st.info("Grid empty. Inject new nodes.")
@@ -638,8 +607,11 @@ else:
         thirty_days_ago = pd.to_datetime('today') - timedelta(days=30)
         df_seeker = df[df['date_added'] >= thirty_days_ago].copy()
 
-        df_saved_ids = fetch_dataframe("SELECT job_id FROM saved_jobs WHERE user_email=%s", (user_email,))
-        saved_job_ids = df_saved_ids['job_id'].tolist() if not df_saved_ids.empty else []
+        conn = psycopg2.connect(DB_URL)
+        c = conn.cursor()
+        c.execute("SELECT job_id FROM saved_jobs WHERE user_email=%s", (user_email,))
+        saved_job_ids = [r[0] for r in c.fetchall()]
+        conn.close()
 
         tab_browse, tab_saved, tab_match = st.tabs(["[ GRID SEARCH ]", "[ ⭐ SAVED NODES ]", "[ AI OVERRIDE ]"])
         with tab_browse:
