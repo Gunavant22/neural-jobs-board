@@ -4,6 +4,8 @@ import psycopg2
 import pandas as pd
 import PyPDF2
 import uuid
+import zipfile
+import io
 from datetime import datetime, timedelta
 
 # ==========================================
@@ -57,12 +59,14 @@ def apply_futuristic_css():
 apply_futuristic_css()
 
 # ==========================================
-# 3. SUPABASE CLOUD DATABASE SETUP
+# 3. DATABASE SETUP
 # ==========================================
+USER_HOME = os.path.expanduser("~") 
+DB_PATH = os.path.join(USER_HOME, 'ai_jobs_production.db')
+
 def init_db():
     conn = psycopg2.connect(DB_URL)
     c = conn.cursor()
-    # Create tables directly in Supabase (Postgres syntax)
     c.execute('''
         CREATE TABLE IF NOT EXISTS jobs (
             id TEXT PRIMARY KEY, title TEXT, company TEXT, location TEXT, 
@@ -81,6 +85,14 @@ def init_db():
             user_email TEXT, job_id TEXT, PRIMARY KEY (user_email, job_id)
         )
     ''')
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS user_resumes (
+            user_email TEXT PRIMARY KEY,
+            resume_data BYTEA,
+            skills_text TEXT,
+            date_uploaded TEXT
+        )
+    ''')
     c.execute("""
         INSERT INTO sys_settings (id, is_maintenance, resume_time, message, is_warning, warning_msg) 
         VALUES (1, 0, '', '', 0, '') ON CONFLICT (id) DO NOTHING
@@ -91,7 +103,7 @@ def init_db():
 init_db()
 
 # ==========================================
-# 4. HELPER FUNCTIONS
+# 4. HELPER FUNCTIONS & AUTO-PURGER
 # ==========================================
 def get_sys_status():
     conn = psycopg2.connect(DB_URL)
@@ -99,7 +111,6 @@ def get_sys_status():
     c.execute("SELECT is_maintenance, resume_time, message, is_warning, warning_msg FROM sys_settings WHERE id=1")
     row = c.fetchone()
     conn.close()
-    
     is_maint, res_time, msg, is_warn, warn_msg = row[0], row[1], row[2], row[3], row[4]
     
     if is_maint == 1 and res_time:
@@ -111,6 +122,26 @@ def get_sys_status():
             conn.close()
             return (0, "", "", 0, "")
     return (is_maint, res_time, msg, is_warn, warn_msg)
+
+def purge_resume_data(email):
+    try:
+        conn = psycopg2.connect(DB_URL)
+        c = conn.cursor()
+        c.execute("UPDATE user_resumes SET resume_data = NULL WHERE user_email = %s", (email,))
+        conn.commit()
+        conn.close()
+        st.toast(f"🧹 Database purged for {email}. Space saved!")
+    except Exception as e:
+        st.error(f"Purge failed: {e}")
+
+def generate_zip_datapack(active_resumes):
+    """🛠️ NEW: Compresses multiple PDFs into one ZIP file in-memory!"""
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
+        for email, data in active_resumes:
+            file_name = f"{email.split('@')[0]}_resume.pdf"
+            zip_file.writestr(file_name, bytes(data))
+    return zip_buffer.getvalue()
 
 def extract_text_from_pdf(uploaded_file):
     try: return "".join([page.extract_text() + " " for page in PyPDF2.PdfReader(uploaded_file).pages]).lower()
@@ -131,11 +162,9 @@ def display_job_card(row, is_admin=False, user_email=None, is_saved=False):
             st.markdown(title_html, unsafe_allow_html=True)
             st.markdown(f"<p style='color:#8892b0; font-size: 1.1rem; margin-top: 5px;'>{row['company']}</p>", unsafe_allow_html=True)
             
-            # --- SALARY FORMATTING ---
             sal_val = str(row['salary_amount']).strip()
             if sal_val and sal_val.lower() not in ["n/a", ""]:
-                if not sal_val.startswith("$"):
-                    sal_val = "$" + sal_val
+                if not sal_val.startswith("$"): sal_val = "$" + sal_val
                 sal = f"{sal_val} / {row['salary_type']}"
             else:
                 sal = "Unlisted"
@@ -146,7 +175,6 @@ def display_job_card(row, is_admin=False, user_email=None, is_saved=False):
             st.write("")
             st.link_button("INITIATE UPLINK", row['url'], use_container_width=True, type="primary")
             
-            # --- SAVE TO FAVORITES BUTTON ---
             if not is_admin and user_email:
                 if is_saved:
                     if st.button("❌ REMOVE", key=f"unsave_{row['id']}", use_container_width=True):
@@ -175,6 +203,7 @@ if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
 if 'user_role' not in st.session_state: st.session_state['user_role'] = None
 if 'user_name' not in st.session_state: st.session_state['user_name'] = ""
 if 'user_email' not in st.session_state: st.session_state['user_email'] = "" 
+if 'show_bulk_purge' not in st.session_state: st.session_state['show_bulk_purge'] = False # Tracking bulk purge
 
 # Process Google Login First
 if not st.session_state['logged_in'] and 'code' in st.query_params:
@@ -194,8 +223,6 @@ is_maint, res_time, maint_msg, is_warn, warn_msg = get_sys_status()
 
 # 🛑 MAINTENANCE LOCKOUT LOGIC 🛑
 if is_maint == 1 and st.session_state['user_role'] != "admin":
-    
-    # 🤡 THE MEME TRAP
     if st.session_state['logged_in']:
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
@@ -213,8 +240,6 @@ if is_maint == 1 and st.session_state['user_role'] != "admin":
                 st.session_state.update({'logged_in': False, 'user_role': None, 'user_name': "", 'user_email': ""})
                 st.rerun()
         st.stop()
-        
-    # Standard Red Lockdown Screen
     else:
         auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}&scope=openid%20email%20profile"
         col1, col2, col3 = st.columns([1, 2, 1])
@@ -246,9 +271,7 @@ if not st.session_state['logged_in']:
                 <p class="system-status">[ SYSTEM STATUS: SECURE & ONLINE ]</p>
                 <div class="app-title-large">NEURAL</div>
                 <div class="app-title-large" style="font-size: 2.5rem; margin-bottom: 20px;">// TALENT GRID</div>
-                <p style="color: #8892b0; font-size: 1.1rem; line-height: 1.5; margin-bottom: 30px;">
-                    The premier decentralized manual hub for Artificial Intelligence, Large Language Models, and Data Science operatives.
-                </p>
+                <p style="color: #8892b0; font-size: 1.1rem; line-height: 1.5; margin-bottom: 30px;">The premier decentralized manual hub for Artificial Intelligence, Large Language Models, and Data Science operatives.</p>
                 <a href="{auth_url}" class="cyber-btn" target="_blank">CONNECT DATASTREAM</a>
             </div>
         </div>
@@ -258,8 +281,7 @@ if not st.session_state['logged_in']:
 # 6. MAIN APP DASHBOARDS
 # ==========================================
 else:
-    if is_warn == 1:
-        st.markdown(f"<div class='cyber-warning-banner'>⚠️ SYSTEM NOTICE: {warn_msg}</div>", unsafe_allow_html=True)
+    if is_warn == 1: st.markdown(f"<div class='cyber-warning-banner'>⚠️ SYSTEM NOTICE: {warn_msg}</div>", unsafe_allow_html=True)
 
     col_logo, col_logout = st.columns([8, 1])
     with col_logo: 
@@ -271,19 +293,17 @@ else:
             st.session_state.update({'logged_in': False, 'user_role': None, 'user_name': "", "user_email": ""})
             st.rerun()
 
-    # PostgreSQL Query
     conn = psycopg2.connect(DB_URL)
     df = pd.read_sql_query("SELECT * FROM jobs", conn)
     conn.close()
-    
-    if 'date_added' in df.columns: 
-        df['date_added'] = pd.to_datetime(df['date_added'], errors='coerce').fillna(pd.to_datetime('today'))
-    else: 
-        df['date_added'] = pd.to_datetime('today')
+    if 'date_added' in df.columns: df['date_added'] = pd.to_datetime(df['date_added'], errors='coerce').fillna(pd.to_datetime('today'))
+    else: df['date_added'] = pd.to_datetime('today')
 
     # --- ADMIN VIEW ---
     if st.session_state['user_role'] == "admin":
         st.markdown("### [ GRID METRICS ]")
+        
+        # Calculate active vs expired
         thirty_days_ago = pd.to_datetime('today') - timedelta(days=30)
         active_nodes = len(df[df['date_added'] >= thirty_days_ago]) if not df.empty else 0
         
@@ -292,17 +312,13 @@ else:
         m2.metric("ACTIVE NODES (30D)", active_nodes)
         m3.metric("EXPIRED NODES", len(df) - active_nodes)
         
-        if is_maint == 1:
-            m4.metric("SYSTEM STATUS", "MAINTENANCE")
-            st.error(f"⚠️ SITE IS OFFLINE FOR USERS. Auto-resumes at: {res_time}")
-        elif is_warn == 1:
-            m4.metric("SYSTEM STATUS", "WARNING ACTIVE")
-        else:
-            m4.metric("SYSTEM STATUS", "ONLINE")
+        if is_maint == 1: m4.metric("SYSTEM STATUS", "MAINTENANCE")
+        elif is_warn == 1: m4.metric("SYSTEM STATUS", "WARNING ACTIVE")
+        else: m4.metric("SYSTEM STATUS", "ONLINE")
             
         st.write("---")
 
-        tab1, tab2, tab3 = st.tabs(["[ ➕ INJECT DATA ]", "[ 📋 NODE LIST ]", "[ ⚙️ SYS CONTROLS ]"])
+        tab1, tab2, tab_cand, tab3 = st.tabs(["[ ➕ INJECT DATA ]", "[ 📋 NODE LIST ]", "[ 📄 CANDIDATES ]", "[ ⚙️ SYS CONTROLS ]"])
         
         with tab3:
             st.markdown("#### Stage 1: Global Broadcast (Warning)")
@@ -388,13 +404,103 @@ else:
                 df = df.sort_values(by='date_added', ascending=False)
                 for _, row in df.iterrows(): display_job_card(row, is_admin=True)
 
+        # 📄 CANDIDATES MANAGEMENT TAB (WITH BULK ZIP & AUTO-CONFIRM OVERRIDE)
+        with tab_cand:
+            st.markdown("#### Registered Candidate Mainframe")
+            st.write("Browse candidates. Download raw resumes individually or compress them into a bulk ZIP package.")
+            st.write("---")
+            
+            # Fetch candidates from Supabase
+            conn = psycopg2.connect(DB_URL)
+            c = conn.cursor()
+            c.execute("SELECT user_email, skills_text, date_uploaded, resume_data FROM user_resumes ORDER BY date_uploaded DESC")
+            candidates = c.fetchall()
+            conn.close()
+            
+            # Identify active candidates who have NOT been purged yet
+            active_resumes = [cand for cand in candidates if cand[3] is not None and len(cand[3]) > 0]
+            
+            # --- BULK ZIP ACTION PANEL ---
+            if active_resumes:
+                st.markdown("### 📦 Bulk Datapack Extraction")
+                st.write(f"There are currently **{len(active_resumes)}** active PDF resumes stored in the cloud.")
+                
+                # Generate Zip File in memory
+                zip_data = generate_zip_datapack(active_resumes)
+                
+                # Callback to reveal the confirmation warning box after download
+                def trigger_bulk_purge_confirmation():
+                    st.session_state['show_bulk_purge'] = True
+                
+                st.download_button(
+                    label=f"💾 DOWNLOAD ALL RESUMES ({len(active_resumes)} FILES .ZIP)",
+                    data=zip_data,
+                    file_name=f"neural_grid_resumes_{datetime.now().strftime('%Y-%m-%d')}.zip",
+                    mime="application/zip",
+                    use_container_width=True,
+                    on_click=trigger_bulk_purge_confirmation,
+                    key="bulk_zip_dl"
+                )
+                
+                # 🛑 THE INTERACTIVE SAFETY CONFIRMATION DIALOG 🛑
+                if st.session_state['show_bulk_purge']:
+                    st.write("")
+                    st.warning("⚠️ DECRYPTION COMPLETE. All active resumes have been compiled and downloaded. Do you want to purge these raw PDF files from the cloud database now to reclaim storage space?")
+                    col_yes, col_no = st.columns(2)
+                    with col_yes:
+                        if st.button("🚨 YES, PURGE CLOUD STORAGE", type="primary", use_container_width=True):
+                            conn = psycopg2.connect(DB_URL)
+                            c = conn.cursor()
+                            # Wipe the binary data for all active candidates, keeping the text stats intact!
+                            c.execute("UPDATE user_resumes SET resume_data = NULL WHERE resume_data IS NOT NULL")
+                            conn.commit()
+                            conn.close()
+                            
+                            st.session_state['show_bulk_purge'] = False
+                            st.toast("🧹 Cloud storage successfully purged! Space reclaimed.")
+                            st.rerun()
+                    with col_no:
+                        if st.button("❌ NO, KEEP CLOUD COPIES", use_container_width=True):
+                            st.session_state['show_bulk_purge'] = False
+                            st.rerun()
+                st.write("---")
+            
+            # --- INDIVIDUAL LISTING ---
+            st.markdown("### 👤 Candidate Profiles")
+            if not candidates:
+                st.info("No candidates have uploaded their resumes to the neural grid yet.")
+            else:
+                for cand in candidates:
+                    email, skills_text, date_uploaded, resume_data = cand
+                    with st.container(border=True):
+                        col_info, col_dl = st.columns([4, 1])
+                        with col_info:
+                            st.subheader(email)
+                            st.markdown(f"**Detected Tech Stack:** {skills_text}")
+                            st.caption(f"Secure Uplink Date: {date_uploaded}")
+                        with col_dl:
+                            st.write("") # Spacing
+                            if resume_data is not None and len(resume_data) > 0:
+                                st.download_button(
+                                    label="DOWNLOAD PDF 💾",
+                                    data=bytes(resume_data),
+                                    file_name=f"{email.split('@')[0]}_resume.pdf",
+                                    mime="application/pdf",
+                                    use_container_width=True,
+                                    key=f"dl_{email}",
+                                    on_click=purge_resume_data,
+                                    args=(email,)
+                                )
+                            else:
+                                st.button("🧹 PURGED / SECURED", key=f"purged_{email}", disabled=True, use_container_width=True)
+
     # --- SEEKER VIEW ---
     elif st.session_state['user_role'] == "seeker":
         user_email = st.session_state['user_email']
         thirty_days_ago = pd.to_datetime('today') - timedelta(days=30)
         df_seeker = df[df['date_added'] >= thirty_days_ago].copy()
 
-        # Fetch Saved Jobs (Postgres syntax)
+        # Fetch Saved Jobs
         conn = psycopg2.connect(DB_URL)
         c = conn.cursor()
         c.execute("SELECT job_id FROM saved_jobs WHERE user_email=%s", (user_email,))
@@ -433,6 +539,24 @@ else:
                     if skills:
                         st.success(f"**Parameters Found:** {', '.join(skills).title()}")
                         st.write("---")
+                        
+                        # Save the PDF and the skills to Postgres!
+                        conn = psycopg2.connect(DB_URL)
+                        c = conn.cursor()
+                        today_str = datetime.now().strftime("%Y-%m-%d")
+                        pdf_bytes = uploaded_file.getvalue()
+                        skills_str = ", ".join(skills).title()
+                        
+                        c.execute("""
+                            INSERT INTO user_resumes (user_email, resume_data, skills_text, date_uploaded)
+                            VALUES (%s, %s, %s, %s)
+                            ON CONFLICT (user_email) 
+                            DO UPDATE SET resume_data = EXCLUDED.resume_data, skills_text = EXCLUDED.skills_text, date_uploaded = EXCLUDED.date_uploaded
+                        """, (user_email, psycopg2.Binary(pdf_bytes), skills_str, today_str))
+                        conn.commit()
+                        conn.close()
+                        st.toast("⚡ Resume secure-uplinked to Neural Databank!")
+                        
                         matched = df_seeker[df_seeker['title'].str.lower().str.contains('|'.join(skills))]
                         if not matched.empty:
                             st.markdown(f"#### >>> MATCHES FOUND ({len(matched)}):")
