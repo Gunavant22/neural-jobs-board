@@ -11,7 +11,9 @@ import zipfile
 import io
 import urllib.parse
 import ssl
-import secrets
+import hmac
+import hashlib
+import time
 from bs4 import BeautifulSoup
 import feedparser
 from datetime import datetime, timedelta
@@ -35,7 +37,46 @@ if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
 
 # ==========================================
-# 2. FUTURISTIC UI & ANIMATIONS
+# 2. STATELESS OAUTH CSRF ENGINE
+# ==========================================
+def generate_state_token(client_secret):
+    """Generates a signed timestamp token to protect against OAuth CSRF without relying on RAM state."""
+    timestamp = str(int(time.time()))
+    signature = hmac.new(
+        client_secret.encode('utf-8'),
+        timestamp.encode('utf-8'),
+        hashlib.sha256
+    ).hexdigest()
+    return f"{timestamp}_{signature}"
+
+def verify_state_token(returned_state, client_secret, max_age_seconds=600):
+    """Cryptographically verifies returning state tokens and ensures they are under 10 minutes old."""
+    try:
+        if "_" not in returned_state:
+            return False
+        timestamp_str, returned_signature = returned_state.split("_", 1)
+        
+        # Verify cryptographic integrity
+        expected_signature = hmac.new(
+            client_secret.encode('utf-8'),
+            timestamp_str.encode('utf-8'),
+            hashlib.sha256
+        ).hexdigest()
+        
+        if not hmac.compare_digest(expected_signature, returned_signature):
+            return False
+        
+        # Check freshness to prevent replay attacks
+        timestamp = int(timestamp_str)
+        if int(time.time()) - timestamp > max_age_seconds:
+            return False
+            
+        return True
+    except Exception:
+        return False
+
+# ==========================================
+# 3. FUTURISTIC UI & ANIMATIONS
 # ==========================================
 st.set_page_config(page_title="NEURAL // Jobs", page_icon="⚡", layout="wide", initial_sidebar_state="collapsed")
 
@@ -78,36 +119,39 @@ def apply_futuristic_css():
 apply_futuristic_css()
 
 # ==========================================
-# 3. HELPER FUNCTIONS & POOLED DB ACCESS
+# 4. CRASH-PROOF DATABASE HANDLER (POOLED)
 # ==========================================
 @st.cache_resource
 def init_connection_pool():
-    """Initializes a shared, multi-threaded connection pool to bypass DB limits."""
+    """Initializes a shared connection pool to bypass DB exhaustion crashes."""
     try:
         return ThreadedConnectionPool(minconn=1, maxconn=10, dsn=DB_CONN_STR)
     except Exception as e:
-        print(f"DATABASE CONNECTION POOL CRITICAL ERROR: {e}")
+        print(f"DATABASE CONNECTION POOL INITIALIZATION FAILURE: {e}")
         return None
 
 def execute_query(query, params=None, fetch=False):
-    """🛠️ CRASH-PROOF & SECURE DB RUNTIME: Uses connection pooling and hides raw SQL traces."""
+    """🛠️ POOLED DB RUNTIME: Safe connection management and clean error logs."""
     pool = init_connection_pool()
     if not pool:
-        st.error("Infrastructure Error: Secure connection pool initialization failed.")
+        st.error("Secure connection failure: Connection pool unavailable.")
         return pd.DataFrame()
         
     try:
         conn = pool.getconn()
     except Exception as e:
-        print(f"POOLED DB ERROR (getConnection): {e}")
-        st.error("System capacity limit reached. Please try again in a few moments.")
+        print(f"Connection Pool Exhaustion: {e}")
+        st.error("Connection capacity limit reached. Please reload in a moment.")
         return pd.DataFrame()
         
     try:
         c = conn.cursor()
-        if params: c.execute(query, params)
-        else: c.execute(query)
-        
+        if params:
+            safe_params = tuple(bytes(p) if isinstance(p, (bytes, memoryview)) else p for p in params)
+            c.execute(query, safe_params)
+        else:
+            c.execute(query)
+            
         if fetch:
             rows = c.fetchall()
             cols = [desc[0] for desc in c.description] if c.description else []
@@ -118,7 +162,7 @@ def execute_query(query, params=None, fetch=False):
         return pd.DataFrame()
     except Exception as e:
         conn.rollback()
-        # Security: Log raw system/schema issues to backend server logs only
+        # Log real exception securely to server terminal/logs
         print(f"SECURE DATABASE CRITICAL EXCEPTION: {e}")
         st.error("A secure network database exception occurred. System Administrators have been notified.")
         return pd.DataFrame()
@@ -159,7 +203,6 @@ def extract_text_from_pdf(uploaded_file):
     except: return ""
 
 def format_salary(salary_amount, salary_type):
-    """Sanitizes and formats unlisted or misformatted compensation strings."""
     sal_val = str(salary_amount).strip()
     if not sal_val or sal_val.lower() in ["n/a", ""]:
         return "Unlisted"
@@ -185,7 +228,6 @@ def display_job_card(row, is_admin=False, user_email=None, is_saved=False, is_te
                 st.markdown("<p style='color:#8892b0; font-size:0.8rem; text-align:center;'>Log in to decrypt link.</p>", unsafe_allow_html=True)
         return
 
-    # Check for NaN / Empty Company Name to prevent indexing crash
     company_val = str(row['company']).strip() if pd.notna(row['company']) else ""
     avatar_char = company_val[0].upper() if company_val else "X"
 
@@ -214,7 +256,7 @@ def display_job_card(row, is_admin=False, user_email=None, is_saved=False, is_te
             st.write(row['description'])
 
 # ==========================================
-# 5. STATE MANAGEMENT & SECURE OAUTH
+# 5. STATE MANAGEMENT & OAUTH CALLBACK
 # ==========================================
 if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
 if 'user_role' not in st.session_state: st.session_state['user_role'] = None
@@ -224,21 +266,17 @@ if 'show_bulk_purge' not in st.session_state: st.session_state['show_bulk_purge'
 if 'draft_job' not in st.session_state: st.session_state['draft_job'] = None
 if 'last_heartbeat' not in st.session_state: st.session_state['last_heartbeat'] = datetime.min
 
-# Secure State Generation (CSRF Mitigation)
-if 'oauth_state' not in st.session_state:
-    st.session_state['oauth_state'] = secrets.token_urlsafe(16)
-
-is_maint, res_time, maint_msg, is_warn, warn_msg = get_sys_status()
-state_token = st.session_state['oauth_state']
+# Secure dynamic token generation for state
+state_token = generate_state_token(CLIENT_SECRET)
 auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}&scope=openid%20email%20profile&state={state_token}"
 
 if not st.session_state['logged_in'] and 'code' in st.query_params:
     with st.spinner("Decrypting neural pathways..."):
         returned_state = st.query_params.get("state")
         
-        # Verify OAuth state matches local token to block CSRF exploits
-        if not returned_state or returned_state != st.session_state['oauth_state']:
-            st.error("Authentication security error: state token mismatch (anti-CSRF barrier failed).")
+        # Verify signed state token (csrf check)
+        if not returned_state or not verify_state_token(returned_state, CLIENT_SECRET):
+            st.error("Authentication security error: state token mismatch (anti-CSRF barrier failed). Connection aborted.")
             st.stop()
             
         code = st.query_params['code']
@@ -314,7 +352,7 @@ if not st.session_state['logged_in']:
     st.divider()
     st.markdown("<h4 style='text-align: center; color: #8892b0; margin-bottom: 30px;'>[ RECENT ACTIVE NODES ]</h4>", unsafe_allow_html=True)
     
-    # SQL optimization: Fetch past 30 days and limit to 10 entries directly from the DB
+    # Query past 30 days and limit directly inside Database to reduce memory load
     thirty_days_str = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
     df_public = execute_query("SELECT * FROM jobs WHERE date_added >= %s ORDER BY date_added DESC LIMIT 10", (thirty_days_str,), fetch=True)
     if not df_public.empty:
@@ -345,9 +383,9 @@ else:
     # --- ADMIN VIEW ---
     if st.session_state['user_role'] == "admin":
         st.markdown("### [ GRID METRICS ]")
-        
-        # SQL Optimization: Use database aggregate queries instead of pulling the entire table
         thirty_days_str = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
+        
+        # SQL-Level aggregation keeps computational load inside Database Engine
         df_counts = execute_query(
             "SELECT COUNT(*) as total, SUM(CASE WHEN date_added >= %s THEN 1 ELSE 0 END) as active FROM jobs", 
             (thirty_days_str,), 
@@ -442,7 +480,7 @@ else:
                     st.session_state['inject_msg'] = None
                 elif st.session_state.get('inject_msg') == "error":
                     st.error("SYSTEM ERROR: Title, Company, and URL are required.")
-                    st.session_state['inject_msg'] = None
+                    st.session_state['inject_status'] = None
                 
                 st.text_input("Job Title", key="m_title")
                 st.text_input("Entity / Company", key="m_company")
@@ -460,7 +498,7 @@ else:
                 with cb1: st.button("🚀 INJECT NODE", type="primary", use_container_width=True, on_click=inject_man)
                 with cb2: st.button("🧹 CLEAR ALL", use_container_width=True, on_click=clear_manual)
 
-        # 🧠 NEW: AUTO-URL IMPORTER (Bypasses bot blocks via Jina AI)
+        # 🧠 AUTO-URL IMPORTER (Bypasses bot blocks via Jina AI)
         if tab_ai:
             with tab_ai:
                 st.markdown("#### 🧠 Auto-URL Importer (Gemini AI)")
