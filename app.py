@@ -74,34 +74,28 @@ def apply_futuristic_css():
 apply_futuristic_css()
 
 # ==========================================
-# 3. HELPER FUNCTIONS & DB
+# 3. HELPER FUNCTIONS
 # ==========================================
 def execute_query(query, params=None, fetch=False):
+    """🛠️ CRASH-PROOF DB READER: Safely fetches data without Segfaults!"""
     try:
         conn = psycopg2.connect(DB_CONN_STR)
         c = conn.cursor()
         if params: c.execute(query, params)
         else: c.execute(query)
+        
         if fetch:
             rows = c.fetchall()
             cols = [desc[0] for desc in c.description] if c.description else []
             conn.commit()
             conn.close()
             return pd.DataFrame(rows, columns=cols)
+        
         conn.commit()
         conn.close()
     except Exception as e:
         st.error(f"Database Error: {e}")
         return pd.DataFrame()
-
-def init_db():
-    execute_query('''CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, title TEXT, company TEXT, location TEXT, url TEXT, source TEXT, description TEXT, salary_amount TEXT, salary_type TEXT, date_added TEXT)''')
-    execute_query('''CREATE TABLE IF NOT EXISTS sys_settings (id INTEGER PRIMARY KEY, is_maintenance INTEGER, resume_time TEXT, message TEXT, is_warning INTEGER DEFAULT 0, warning_msg TEXT DEFAULT '')''')
-    execute_query('''CREATE TABLE IF NOT EXISTS saved_jobs (user_email TEXT, job_id TEXT, PRIMARY KEY (user_email, job_id))''')
-    execute_query('''CREATE TABLE IF NOT EXISTS user_resumes (user_email TEXT PRIMARY KEY, resume_data BYTEA, skills_text TEXT, date_uploaded TEXT)''')
-    execute_query('''CREATE TABLE IF NOT EXISTS users (email TEXT PRIMARY KEY, name TEXT, role TEXT, last_active TEXT, total_logins INTEGER DEFAULT 0)''')
-    execute_query("INSERT INTO sys_settings (id, is_maintenance, resume_time, message, is_warning, warning_msg) VALUES (1, 0, '', '', 0, '') ON CONFLICT (id) DO NOTHING")
-init_db()
 
 def get_sys_status():
     df = execute_query("SELECT is_maintenance, resume_time, message, is_warning, warning_msg FROM sys_settings WHERE id=1", fetch=True)
@@ -113,6 +107,10 @@ def get_sys_status():
             return (0, "", "", 0, "")
         return (is_maint, res_time, msg, is_warn, warn_msg)
     return (0, "", "", 0, "")
+
+def purge_resume_data(email):
+    execute_query("UPDATE user_resumes SET resume_data = NULL WHERE user_email = %s", (email,))
+    st.toast(f"🧹 Database purged for {email}. Space saved!")
 
 def generate_zip_datapack(active_resumes):
     zip_buffer = io.BytesIO()
@@ -127,7 +125,10 @@ def extract_text_from_pdf(uploaded_file):
     except: return ""
 
 def display_job_card(row, is_admin=False, user_email=None, is_saved=False, is_teaser=False):
-    is_expired = is_admin and pd.to_datetime(row['date_added']) < (pd.to_datetime('today') - timedelta(days=30))
+    # Safe String Date Comparison
+    thirty_days_str = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
+    is_expired = is_admin and str(row['date_added']) < thirty_days_str
+
     sal_val = str(row['salary_amount']).strip()
     sal = f"${sal_val} / {row['salary_type']}" if sal_val and sal_val.lower() not in ["n/a", ""] and not sal_val.startswith("$") else (f"{sal_val} / {row['salary_type']}" if sal_val and sal_val.lower() not in ["n/a", ""] else "Unlisted")
     date_str = str(row['date_added'])[:10]
@@ -260,8 +261,9 @@ if not st.session_state['logged_in']:
     
     df_public = execute_query("SELECT * FROM jobs", fetch=True)
     if not df_public.empty:
-        df_public['date_added'] = pd.to_datetime(df_public['date_added'], errors='coerce').fillna(pd.to_datetime('today'))
-        df_public = df_public[df_public['date_added'] >= (pd.to_datetime('today') - timedelta(days=30))].sort_values(by='date_added', ascending=False).head(10)
+        thirty_days_str = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
+        df_public = df_public[df_public['date_added'] >= thirty_days_str]
+        df_public = df_public.sort_values(by='date_added', ascending=False).head(10)
         for _, row in df_public.iterrows(): display_job_card(row, is_admin=False, is_teaser=True)
     else: st.info("Grid is currently initiating. Check back later for new uplinks.")
 
@@ -287,13 +289,12 @@ else:
             st.rerun()
 
     df = execute_query("SELECT * FROM jobs", fetch=True)
-    if 'date_added' in df.columns: df['date_added'] = pd.to_datetime(df['date_added'], errors='coerce').fillna(pd.to_datetime('today'))
-    else: df['date_added'] = pd.to_datetime('today')
 
     # --- ADMIN VIEW ---
     if st.session_state['user_role'] == "admin":
         st.markdown("### [ GRID METRICS ]")
-        active_nodes = len(df[df['date_added'] >= (pd.to_datetime('today') - timedelta(days=30))]) if not df.empty else 0
+        thirty_days_str = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
+        active_nodes = len(df[df['date_added'] >= thirty_days_str]) if not df.empty else 0
         
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("TOTAL DATANODES", len(df))
@@ -398,50 +399,31 @@ else:
                 with cb1: st.button("🚀 INJECT NODE", type="primary", use_container_width=True, on_click=inject_man)
                 with cb2: st.button("🧹 CLEAR ALL", use_container_width=True, on_click=clear_manual)
 
-        # 🧠 NEW: AUTO-URL IMPORTER (Bypasses bot blocks via Jina AI)
         if tab_ai:
             with tab_ai:
-                st.markdown("#### 🧠 Auto-URL Importer (Gemini AI)")
+                st.markdown("#### 🧠 Free Gemini AI Importer")
                 if st.session_state['draft_job'] is None:
-                    st.write("Paste the job URL below. The system will automatically bypass bot-protections, read the page, and decipher the job details.")
-                    ai_target_url = st.text_input("Target Apply URL", placeholder="https://work.mercor.com/explore?...")
-                    raw_messy_text = st.text_area("Fallback: Paste raw text here ONLY if the URL fetch fails", height=100)
-                    
-                    if st.button("🧠 FETCH & DECIPHER", type="primary", use_container_width=True):
-                        if ai_target_url or raw_messy_text:
-                            with st.spinner("Initiating sequence..."):
-                                text_to_analyze = raw_messy_text
-                                
-                                # Fetch from URL if text box is empty
-                                if not text_to_analyze and ai_target_url:
-                                    st.toast("🌐 Fetching URL via Jina AI Reader...")
-                                    try:
-                                        res = requests.get(f"https://r.jina.ai/{ai_target_url}")
-                                        if res.status_code == 200:
-                                            text_to_analyze = res.text
-                                        else:
-                                            st.error(f"Firewall Blocked URL (Error {res.status_code}). Please copy-paste the text manually.")
-                                    except Exception as e:
-                                        st.error(f"Fetch failed: {e}")
-                                
-                                if text_to_analyze:
-                                    st.toast("🧠 Gemini 1.5 Flash processing data...")
-                                    try:
-                                        model = genai.GenerativeModel("gemini-1.5-flash")
-                                        prompt = f"""
-                                        Analyze this webpage text:
-                                        {text_to_analyze[:4000]}
-                                        Extract and format exactly into JSON. Return ONLY raw JSON text:
-                                        {{ "title": "Job Title", "company": "Company", "location": "City or 'Remote'", "description": "4-sentence professional summary.", "salary_amount": "Amount or 'N/A'", "salary_type": "Yearly/Monthly/Hourly/Unspecified" }}
-                                        """
-                                        response = model.generate_content(prompt)
-                                        ai_output = response.text.strip().replace('```json', '').replace('```', '')
-                                        parsed = json.loads(ai_output.strip())
-                                        parsed['url'] = ai_target_url
-                                        st.session_state['draft_job'] = parsed
-                                        st.rerun()
-                                    except Exception as e: st.error(f"Decipher failed: {e}")
-                        else: st.warning("Paste a URL or raw text.")
+                    raw_messy_text = st.text_area("Paste Messy Webpage Text", height=200)
+                    ai_target_url = st.text_input("Target Apply URL")
+                    if st.button("🧠 DECIPHER RAW DATA", type="primary", use_container_width=True):
+                        if raw_messy_text and ai_target_url:
+                            with st.spinner("Gemini 1.5 Flash Deciphering data..."):
+                                try:
+                                    model = genai.GenerativeModel("gemini-1.5-flash")
+                                    prompt = f"""
+                                    Analyze this messy webpage text:
+                                    {raw_messy_text[:4000]}
+                                    Extract and format exactly into JSON. Return ONLY raw JSON text:
+                                    {{ "title": "Job Title", "company": "Company", "location": "City or 'Remote'", "description": "4-sentence professional summary.", "salary_amount": "Amount or 'N/A'", "salary_type": "Yearly/Monthly/Hourly/Unspecified" }}
+                                    """
+                                    response = model.generate_content(prompt)
+                                    ai_output = response.text.strip().replace('```json', '').replace('```', '')
+                                    parsed = json.loads(ai_output.strip())
+                                    parsed['url'] = ai_target_url
+                                    st.session_state['draft_job'] = parsed
+                                    st.rerun()
+                                except Exception as e: st.error(f"Decipher failed: {e}")
+                        else: st.warning("Paste text and URL.")
                 else:
                     st.warning("⚠️ DRAFT DECIPHERED. Edit and confirm below.")
                     with st.container(border=True):
@@ -476,7 +458,7 @@ else:
                 active_resumes = df_cands.dropna(subset=['resume_data'])
                 if not active_resumes.empty:
                     st.markdown("### 📦 Bulk Datapack Extraction")
-                    zip_data = generate_zip_datapack(active_resumes.to_dict('records'))
+                    zip_data = generate_zip_datapack(active_resumes)
                     def trig_purge(): st.session_state['show_bulk_purge'] = True
                     st.download_button(label=f"💾 DOWNLOAD ALL ({len(active_resumes)} .ZIP)", data=zip_data, file_name=f"resumes_{datetime.now().strftime('%Y-%m-%d')}.zip", mime="application/zip", use_container_width=True, on_click=trig_purge)
                     
@@ -515,7 +497,8 @@ else:
     # --- SEEKER VIEW ---
     elif st.session_state['user_role'] == "seeker":
         ue = st.session_state['user_email']
-        df_seeker = df[df['date_added'] >= (pd.to_datetime('today') - timedelta(days=30))].copy()
+        thirty_days_str = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
+        df_seeker = df[df['date_added'] >= thirty_days_str].copy()
 
         df_saved = execute_query("SELECT job_id FROM saved_jobs WHERE user_email=%s", (ue,), fetch=True)
         saved_ids = df_saved['job_id'].tolist() if not df_saved.empty else []
@@ -526,8 +509,14 @@ else:
             with cs: search = st.text_input("QUERY DATABASE...", placeholder="Python, OpenAI...")
             with ct: t_filter = st.selectbox("TIME RANGE", ["All Active", "Past 24 Hours", "Past 7 Days"])
             st.write("---")
-            if t_filter == "Past 24 Hours": df_seeker = df_seeker[df_seeker['date_added'] >= (pd.to_datetime('today') - timedelta(days=1))]
-            elif t_filter == "Past 7 Days": df_seeker = df_seeker[df_seeker['date_added'] >= (pd.to_datetime('today') - timedelta(days=7))]
+            
+            if time_filter == "Past 24 Hours": 
+                t_str = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+                df_seeker = df_seeker[df_seeker['date_added'] >= t_str]
+            elif time_filter == "Past 7 Days": 
+                t_str = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
+                df_seeker = df_seeker[df_seeker['date_added'] >= t_str]
+                
             if search: df_seeker = df_seeker[df_seeker['title'].str.contains(search, case=False) | df_seeker['company'].str.contains(search, case=False)]
             
             if df_seeker.empty: st.info("No nodes match.")
