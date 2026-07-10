@@ -74,11 +74,8 @@ def apply_futuristic_css():
 apply_futuristic_css()
 
 # ==========================================
-# 3. DATABASE SETUP
+# 3. DATABASE SETUP 
 # ==========================================
-USER_HOME = os.path.expanduser("~") 
-DB_PATH = os.path.join(USER_HOME, 'ai_jobs_production.db')
-
 def init_db():
     conn = psycopg2.connect(DB_URL)
     c = conn.cursor()
@@ -96,23 +93,30 @@ init_db()
 # ==========================================
 # 4. HELPER FUNCTIONS
 # ==========================================
-def get_sys_status():
+def fetch_dataframe(query, params=None):
+    """🛠️ CRASH-PROOF DB READER: Bypasses Pandas Segfault Bugs!"""
     conn = psycopg2.connect(DB_URL)
     c = conn.cursor()
-    c.execute("SELECT is_maintenance, resume_time, message, is_warning, warning_msg FROM sys_settings WHERE id=1")
-    row = c.fetchone()
+    if params: c.execute(query, params)
+    else: c.execute(query)
+    rows = c.fetchall()
+    cols = [desc[0] for desc in c.description] if c.description else []
     conn.close()
-    is_maint, res_time, msg, is_warn, warn_msg = row[0], row[1], row[2], row[3], row[4]
-    
-    if is_maint == 1 and res_time:
-        if datetime.now() > datetime.strptime(res_time, "%Y-%m-%d %H:%M:%S"):
+    return pd.DataFrame(rows, columns=cols)
+
+def get_sys_status():
+    df = fetch_dataframe("SELECT is_maintenance, resume_time, message, is_warning, warning_msg FROM sys_settings WHERE id=1")
+    if not df.empty:
+        row = df.iloc[0]
+        is_maint, res_time, msg, is_warn, warn_msg = row['is_maintenance'], row['resume_time'], row['message'], row['is_warning'], row['warning_msg']
+        if is_maint == 1 and res_time and datetime.now() > datetime.strptime(res_time, "%Y-%m-%d %H:%M:%S"):
             conn = psycopg2.connect(DB_URL)
-            c = conn.cursor()
-            c.execute("UPDATE sys_settings SET is_maintenance=0, is_warning=0 WHERE id=1")
+            conn.cursor().execute("UPDATE sys_settings SET is_maintenance=0, is_warning=0 WHERE id=1")
             conn.commit()
             conn.close()
             return (0, "", "", 0, "")
-    return (is_maint, res_time, msg, is_warn, warn_msg)
+        return (is_maint, res_time, msg, is_warn, warn_msg)
+    return (0, "", "", 0, "")
 
 def purge_resume_data(email):
     try:
@@ -145,12 +149,10 @@ def display_job_card(row, is_admin=False, user_email=None, is_saved=False, is_te
         sal = f"{sal_val} / {row['salary_type']}"
     else: sal = "Unlisted"
 
-    # --- TEASER MODE (Public Landing Page) ---
     if is_teaser:
         with st.container(border=True):
             col_icon, col_details, col_action = st.columns([1, 7, 2])
-            with col_icon:
-                st.markdown("<div class='company-avatar company-avatar-locked'>🔒</div>", unsafe_allow_html=True)
+            with col_icon: st.markdown("<div class='company-avatar company-avatar-locked'>🔒</div>", unsafe_allow_html=True)
             with col_details:
                 st.markdown(f"<h3 style='margin-bottom:0px; color:#ffffff;'>{row['title']}</h3>", unsafe_allow_html=True)
                 st.markdown("<p style='color:#ff4757; font-size: 1rem; margin-top: 5px;'>[ COMPANY REDACTED ]</p>", unsafe_allow_html=True)
@@ -160,11 +162,9 @@ def display_job_card(row, is_admin=False, user_email=None, is_saved=False, is_te
                 st.markdown("<p style='color:#8892b0; font-size:0.8rem; text-align:center;'>Log in to decrypt link.</p>", unsafe_allow_html=True)
         return
 
-    # --- NORMAL MODE (Logged In) ---
     with st.container(border=True):
         col_icon, col_details, col_action = st.columns([1, 7, 2])
-        with col_icon:
-            st.markdown(f"<div class='company-avatar'>{row['company'][0].upper() if row['company'] else 'X'}</div>", unsafe_allow_html=True)
+        with col_icon: st.markdown(f"<div class='company-avatar'>{row['company'][0].upper() if row['company'] else 'X'}</div>", unsafe_allow_html=True)
         with col_details:
             title_html = f"<h3 style='margin-bottom:0px; color:#ffffff;'>{row['title']}</h3>"
             if is_expired: title_html = f"<h3 style='margin-bottom:0px; color:#ff4757;'>[EXPIRED] {row['title']}</h3>"
@@ -216,6 +216,7 @@ if not st.session_state['logged_in'] and 'code' in st.query_params:
             email = user_data.get("email")
             role = "admin" if email in ADMIN_EMAILS else "seeker"
             name = user_data.get("name")
+            
             st.session_state.update({'logged_in': True, 'user_name': name, 'user_email': email, 'user_role': role})
             st.query_params.clear()
             
@@ -274,10 +275,8 @@ if is_maint == 1 and st.session_state['user_role'] != "admin":
             """, unsafe_allow_html=True)
         st.stop() 
 
-# --- NEW PUBLIC LANDING PAGE (THE TEASER GRID) ---
 if not st.session_state['logged_in']:
     auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}&scope=openid%20email%20profile"
-    
     col1, col2, col3 = st.columns([1, 3, 1])
     with col2:
         st.markdown(f"""
@@ -295,13 +294,9 @@ if not st.session_state['logged_in']:
         """, unsafe_allow_html=True)
         
     st.divider()
-    
     st.markdown("<h4 style='text-align: center; color: #8892b0; margin-bottom: 30px;'>[ RECENT ACTIVE NODES ]</h4>", unsafe_allow_html=True)
     
-    conn = psycopg2.connect(DB_URL)
-    df_public = pd.read_sql_query("SELECT * FROM jobs", conn)
-    conn.close()
-    
+    df_public = fetch_dataframe("SELECT * FROM jobs")
     if not df_public.empty:
         if 'date_added' in df_public.columns: df_public['date_added'] = pd.to_datetime(df_public['date_added'], errors='coerce').fillna(pd.to_datetime('today'))
         else: df_public['date_added'] = pd.to_datetime('today')
@@ -310,10 +305,8 @@ if not st.session_state['logged_in']:
         df_public = df_public[df_public['date_added'] >= thirty_days_ago]
         df_public = df_public.sort_values(by='date_added', ascending=False).head(10)
         
-        for _, row in df_public.iterrows():
-            display_job_card(row, is_admin=False, is_teaser=True)
-    else:
-        st.info("Grid is currently initiating. Check back later for new uplinks.")
+        for _, row in df_public.iterrows(): display_job_card(row, is_admin=False, is_teaser=True)
+    else: st.info("Grid is currently initiating. Check back later for new uplinks.")
 
 # ==========================================
 # 6. MAIN APP DASHBOARDS (Logged In)
@@ -340,9 +333,7 @@ else:
             st.session_state.update({'logged_in': False, 'user_role': None, 'user_name': "", "user_email": ""})
             st.rerun()
 
-    conn = psycopg2.connect(DB_URL)
-    df = pd.read_sql_query("SELECT * FROM jobs", conn)
-    conn.close()
+    df = fetch_dataframe("SELECT * FROM jobs")
     if 'date_added' in df.columns: df['date_added'] = pd.to_datetime(df['date_added'], errors='coerce').fillna(pd.to_datetime('today'))
     else: df['date_added'] = pd.to_datetime('today')
 
@@ -371,11 +362,7 @@ else:
             
         with tab_analytics:
             st.markdown("#### Real-Time User Telemetry")
-            st.write("Monitor network traffic, user engagement, and active sessions.")
-            conn = psycopg2.connect(DB_URL)
-            df_users = pd.read_sql_query("SELECT email, name, role, total_logins, last_active FROM users ORDER BY last_active DESC", conn)
-            conn.close()
-            
+            df_users = fetch_dataframe("SELECT email, name, role, total_logins, last_active FROM users ORDER BY last_active DESC")
             if not df_users.empty:
                 df_users['last_active'] = pd.to_datetime(df_users['last_active'], errors='coerce')
                 five_mins_ago = pd.to_datetime('today') - timedelta(minutes=5)
@@ -394,13 +381,13 @@ else:
                 df_display = df_display[['Status', 'name', 'email', 'total_logins', 'Last Seen']]
                 df_display.columns = ['Status', 'Name', 'Email', 'Total Logins', 'Last Seen']
                 st.dataframe(df_display, use_container_width=True, hide_index=True)
-            else: st.info("No user telemetry data found. Users need to log in to generate data.")
+            else: st.info("No user telemetry data found.")
 
         with tab3:
             st.markdown("#### Stage 1: Global Broadcast (Warning)")
             if is_warn == 0:
                 with st.form("warn_form"):
-                    w_msg = st.text_input("Warning Message", value="System maintenance will begin in 15 minutes. Please save your work.")
+                    w_msg = st.text_input("Warning Message", value="System maintenance will begin in 15 minutes.")
                     if st.form_submit_button("📢 BROADCAST WARNING"):
                         conn = psycopg2.connect(DB_URL)
                         c = conn.cursor()
@@ -458,8 +445,7 @@ else:
                         st.session_state['manual_desc'] = f"Apply :- {url}\n\n" + st.session_state['manual_desc']
                 
                 def clear_form_cb():
-                    for k in ['m_title', 'm_company', 'm_location', 'm_sal_amount', 'manual_url', 'manual_desc']: 
-                        st.session_state[k] = ""
+                    for k in ['m_title', 'm_company', 'm_location', 'm_sal_amount', 'manual_url', 'manual_desc']: st.session_state[k] = ""
                 
                 def inject_node_cb():
                     t = st.session_state['m_title']
@@ -476,8 +462,7 @@ else:
                         conn.close()
                         clear_form_cb()
                         st.session_state['inject_status'] = "success"
-                    else:
-                        st.session_state['inject_status'] = "error"
+                    else: st.session_state['inject_status'] = "error"
 
                 if st.session_state['inject_status'] == "success":
                     st.success("Injection Successful! Form reset for next entry.")
@@ -489,8 +474,7 @@ else:
                 st.text_input("Job Title", key="m_title")
                 st.text_input("Entity / Company", key="m_company")
                 m_is_remote = st.radio("Is this a Remote position?", ["Yes", "No"], horizontal=True, key="m_is_remote")
-                if m_is_remote == "No":
-                    st.text_input("Specify Location", key="m_location")
+                if m_is_remote == "No": st.text_input("Specify Location", key="m_location")
                 
                 c1, c2 = st.columns(2)
                 with c1: st.text_input("Compensation (in USD $)", key="m_sal_amount")
@@ -500,10 +484,8 @@ else:
                 st.text_area("File Contents", key="manual_desc", height=150)
                 
                 col_btn1, col_btn2 = st.columns([4, 1])
-                with col_btn1:
-                    st.button("🚀 INJECT NODE", type="primary", use_container_width=True, on_click=inject_node_cb)
-                with col_btn2:
-                    st.button("🧹 CLEAR ALL", use_container_width=True, on_click=clear_form_cb)
+                with col_btn1: st.button("🚀 INJECT NODE", type="primary", use_container_width=True, on_click=inject_node_cb)
+                with col_btn2: st.button("🧹 CLEAR ALL", use_container_width=True, on_click=clear_form_cb)
 
         if tab_ai:
             with tab_ai:
@@ -541,7 +523,7 @@ else:
                                     parsed_json['url'] = ai_target_url
                                     st.session_state['draft_job'] = parsed_json
                                     st.rerun()
-                                except Exception as e: st.error(f"Gemini Decipher failed: Please try again. Error: {e}")
+                                except Exception as e: st.error(f"Gemini Decipher failed: {e}")
                         else: st.warning("Please paste the messy webpage text and add the apply URL.")
                 else:
                     st.warning("⚠️ DRAFT DECIPHERED. Please review, edit, and confirm the job details below before publishing.")
@@ -585,8 +567,6 @@ else:
 
         with tab_cand:
             st.markdown("#### Registered Candidate Mainframe")
-            st.write("Browse candidates. Download raw resumes individually or compress them into a bulk ZIP package.")
-            st.write("---")
             conn = psycopg2.connect(DB_URL)
             c = conn.cursor()
             c.execute("SELECT user_email, skills_text, date_uploaded, resume_data FROM user_resumes ORDER BY date_uploaded DESC")
