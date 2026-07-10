@@ -216,7 +216,14 @@ if 'user_email' not in st.session_state: st.session_state['user_email'] = ""
 if 'show_bulk_purge' not in st.session_state: st.session_state['show_bulk_purge'] = False
 if 'draft_job' not in st.session_state: st.session_state['draft_job'] = None
 
-# Process Google Login First
+# Manual Injector State Management
+if 'm_title' not in st.session_state: st.session_state['m_title'] = ""
+if 'm_company' not in st.session_state: st.session_state['m_company'] = ""
+if 'm_location' not in st.session_state: st.session_state['m_location'] = ""
+if 'm_sal_amount' not in st.session_state: st.session_state['m_sal_amount'] = ""
+if 'm_url' not in st.session_state: st.session_state['m_url'] = ""
+if 'm_desc' not in st.session_state: st.session_state['m_desc'] = ""
+
 if not st.session_state['logged_in'] and 'code' in st.query_params:
     with st.spinner("Decrypting neural pathways..."):
         code = st.query_params['code']
@@ -232,7 +239,6 @@ if not st.session_state['logged_in'] and 'code' in st.query_params:
 
 is_maint, res_time, maint_msg, is_warn, warn_msg = get_sys_status()
 
-# 🛑 MAINTENANCE LOCKOUT LOGIC 🛑
 if is_maint == 1 and st.session_state['user_role'] != "admin":
     if st.session_state['logged_in']:
         col1, col2, col3 = st.columns([1, 2, 1])
@@ -271,7 +277,6 @@ if is_maint == 1 and st.session_state['user_role'] != "admin":
             """, unsafe_allow_html=True)
         st.stop() 
 
-# --- NORMAL LOGIN SCREEN ---
 if not st.session_state['logged_in']:
     auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}&scope=openid%20email%20profile"
     col1, col2, col3 = st.columns([1, 2, 1])
@@ -380,29 +385,60 @@ else:
         with tab1:
             with st.container(border=True):
                 st.markdown("#### INJECT MANUAL NODE")
-                m_title = st.text_input("Job Title")
-                m_company = st.text_input("Entity / Company")
+                
+                # --- STATE MANAGEMENT LOGIC ---
+                def sync_url_to_desc():
+                    """Magically types the Apply URL into the description box when pasted!"""
+                    url = st.session_state['m_url']
+                    if url and "Apply :-" not in st.session_state['m_desc']:
+                        st.session_state['m_desc'] = f"Apply :- {url}\n\n" + st.session_state['m_desc']
+                
+                def clear_form():
+                    """Wipes the form completely clean!"""
+                    for key in ['m_title', 'm_company', 'm_location', 'm_sal_amount', 'm_url', 'm_desc']:
+                        st.session_state[key] = ""
+                
+                # Input fields hooked to session state
+                st.text_input("Job Title", key="m_title")
+                st.text_input("Entity / Company", key="m_company")
                 m_is_remote = st.radio("Is this a Remote position?", ["Yes", "No"], horizontal=True)
-                m_location = st.text_input("Specify Location") if m_is_remote == "No" else "Remote"
+                if m_is_remote == "No":
+                    st.text_input("Specify Location (e.g. San Francisco, CA / On-site)", key="m_location")
+                else:
+                    st.session_state['m_location'] = "Remote"
+                
                 c1, c2 = st.columns(2)
-                with c1: m_sal_amount = st.text_input("Compensation (in USD $)")
+                with c1: st.text_input("Compensation (in USD $)", key="m_sal_amount")
                 with c2: m_sal_type = st.selectbox("Cycle", ["Yearly", "Monthly", "Hourly", "Unspecified"])
-                m_url = st.text_input("Uplink URL")
-                m_desc = st.text_area("File Contents")
-                if st.button("INJECT NODE", type="primary", use_container_width=True):
-                    if m_title and m_company and m_url:
-                        conn = psycopg2.connect(DB_URL)
-                        c = conn.cursor()
-                        today_str = datetime.now().strftime("%Y-%m-%d")
-                        c.execute("INSERT INTO jobs (id, title, company, location, url, source, description, salary_amount, salary_type, date_added) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-                                              ("MAN_"+str(uuid.uuid4())[:8], m_title, m_company, m_location, m_url, "Manual", m_desc or "No desc", m_sal_amount or "N/A", m_sal_type, today_str))
-                        conn.commit()
-                        conn.close()
-                        st.success("Injection Successful.")
+                
+                # Auto-fill magic URL
+                st.text_input("Uplink URL", key="m_url", on_change=sync_url_to_desc)
+                st.text_area("File Contents", key="m_desc", height=150)
+                
+                # Action Buttons
+                col_btn1, col_btn2 = st.columns([4, 1])
+                with col_btn1:
+                    if st.button("🚀 INJECT NODE", type="primary", use_container_width=True):
+                        if st.session_state.m_title and st.session_state.m_company and st.session_state.m_url:
+                            conn = psycopg2.connect(DB_URL)
+                            c = conn.cursor()
+                            today_str = datetime.now().strftime("%Y-%m-%d")
+                            c.execute("INSERT INTO jobs (id, title, company, location, url, source, description, salary_amount, salary_type, date_added) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                                      ("MAN_"+str(uuid.uuid4())[:8], st.session_state.m_title, st.session_state.m_company, st.session_state.m_location, st.session_state.m_url, "Manual", st.session_state.m_desc or "No desc", st.session_state.m_sal_amount or "N/A", m_sal_type, today_str))
+                            conn.commit()
+                            conn.close()
+                            
+                            # Automatically wipe the form clean on success!
+                            clear_form()
+                            st.success("Injection Successful! Form reset for next entry.")
+                            st.rerun()
+                        else:
+                            st.error("SYSTEM ERROR: Title, Company, and URL are required.")
+                with col_btn2:
+                    if st.button("🧹 CLEAR ALL", use_container_width=True):
+                        clear_form()
                         st.rerun()
-                    else: st.error("SYSTEM ERROR: Title, Company, and URL are required.")
 
-        # 🧠 FREE GEMINI AI MAGIC BOX IMPORTER TAB (ADMIN ONLY) - GEMINI 1.5 FLASH FORCED
         if tab_ai:
             with tab_ai:
                 st.markdown("#### 🧠 Free Gemini AI Importer: Copy-Paste Any Webpage")
@@ -416,7 +452,6 @@ else:
                         if raw_messy_text and ai_target_url:
                             with st.spinner("Gemini 1.5 Flash Deciphering data..."):
                                 try:
-                                    # Force the new Gemini 1.5 API
                                     model = genai.GenerativeModel("gemini-1.5-flash")
                                     prompt = f"""
                                     Analyze this raw, messy webpage text copied from a career website:
@@ -435,7 +470,6 @@ else:
                                     """
                                     response = model.generate_content(prompt)
                                     
-                                    # JSON Cleaner: Strip markdown backticks if Gemini accidentally adds them
                                     ai_output = response.text.strip()
                                     if ai_output.startswith('```json'): ai_output = ai_output[7:]
                                     if ai_output.startswith('```'): ai_output = ai_output[3:]
@@ -518,7 +552,7 @@ else:
                 
                 if st.session_state['show_bulk_purge']:
                     st.write("")
-                    st.warning("⚠️ DECRYPTION COMPLETE. Do you want to purge these raw PDF files from the cloud database now to reclaim storage space?")
+                    st.warning("⚠️ DECRYPTION COMPLETE. All active resumes have been compiled and downloaded. Do you want to purge these raw PDF files from the cloud database now to reclaim storage space?")
                     col_yes, col_no = st.columns(2)
                     with col_yes:
                         if st.button("🚨 YES, PURGE CLOUD STORAGE", type="primary", use_container_width=True):
