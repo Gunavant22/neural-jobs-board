@@ -3,5 +3,5 @@ requests
 pandas
 PyPDF2
 beautifulsoup4
-psycopg
+pg8000
 feedparser
