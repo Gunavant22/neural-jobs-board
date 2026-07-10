@@ -5,6 +5,8 @@ import pandas as pd
 import PyPDF2
 import uuid
 import json
+import zipfile
+import io
 from datetime import datetime, timedelta
 
 try:
@@ -62,19 +64,18 @@ def apply_futuristic_css():
     .stTabs [data-baseweb="tab"] { font-size: 1.1rem; font-weight: 700; color: #8892b0; }
     .stTabs [aria-selected="true"] { color: #00f2fe !important; border-bottom: 2px solid #00f2fe !important; text-shadow: 0 0 10px rgba(0, 242, 254, 0.5); }
     </style>
-    """, unsafe_allow_html=True)
+    """
+    st.markdown(css, unsafe_allow_html=True)
 
 apply_futuristic_css()
 
 # ==========================================
-# 3. DATABASE SETUP
+# 3. DATABASE SETUP (Supabase Postgres)
 # ==========================================
-USER_HOME = os.path.expanduser("~") 
-DB_PATH = os.path.join(USER_HOME, 'ai_jobs_production.db')
-
 def init_db():
     conn = psycopg2.connect(DB_URL)
     c = conn.cursor()
+    # Create tables directly in Supabase (Postgres syntax)
     c.execute('''
         CREATE TABLE IF NOT EXISTS jobs (
             id TEXT PRIMARY KEY, title TEXT, company TEXT, location TEXT, 
@@ -143,7 +144,6 @@ def purge_resume_data(email):
         st.error(f"Purge failed: {e}")
 
 def generate_zip_datapack(active_resumes):
-    import zipfile, io
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
         for email, data in active_resumes:
@@ -183,6 +183,7 @@ def display_job_card(row, is_admin=False, user_email=None, is_saved=False):
             st.write("")
             st.link_button("INITIATE UPLINK", row['url'], use_container_width=True, type="primary")
             
+            # --- SAVE TO FAVORITES BUTTON ---
             if not is_admin and user_email:
                 if is_saved:
                     if st.button("❌ REMOVE", key=f"unsave_{row['id']}", use_container_width=True):
@@ -259,9 +260,7 @@ if is_maint == 1 and st.session_state['user_role'] != "admin":
                     <div class="app-title-large app-title-maintenance">NEURAL</div>
                     <div class="app-title-large app-title-maintenance" style="font-size: 2.5rem; margin-bottom: 20px;">// LOCKED</div>
                     <p style="color: #8892b0; font-size: 1.1rem; line-height: 1.5; margin-bottom: 10px;">{maint_msg}</p>
-                    <p style="color: #ff4757; font-family: 'Share Tech Mono', monospace; font-size: 1.2rem; margin-bottom: 30px;">
-                        EXPECTED UPLINK RESTORED: <br> {res_time}
-                    </p>
+                    <p style="color: #ff4757; font-family: 'Share Tech Mono', monospace; font-size: 1.2rem; margin-bottom: 30px;">EXPECTED UPLINK RESTORED: <br> {res_time}</p>
                     <a href="{auth_url}" class="cyber-btn admin-bypass-btn" target="_blank">STAFF LOGIN</a>
                 </div>
             </div>
@@ -410,7 +409,7 @@ else:
                     else:
                         st.error("SYSTEM ERROR: Title, Company, and URL are required.")
 
-        # 🧠 NEW: FREE GEMINI AI MAGIC BOX IMPORTER TAB (ADMIN ONLY)
+        # 🧠 FREE GEMINI AI MAGIC BOX IMPORTER TAB (ADMIN ONLY)
         if tab_ai:
             with tab_ai:
                 st.markdown("#### 🧠 Free Gemini AI Importer: Copy-Paste Any Webpage")
@@ -468,7 +467,7 @@ else:
                     else:
                         st.warning("Please paste the messy webpage text and add the apply URL.")
 
-        # 📄 CANDIDATES MANAGEMENT TAB
+        # 📄 CANDIDATES MANAGEMENT TAB (WITH BULK ZIP & AUTO-CONFIRM OVERRIDE)
         with tab_cand:
             st.markdown("#### Registered Candidate Mainframe")
             st.write("Browse candidates. Download raw resumes individually or compress them into a bulk ZIP package.")
