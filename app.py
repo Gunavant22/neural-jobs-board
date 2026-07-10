@@ -1,5 +1,6 @@
 import streamlit as st
 import requests
+import psycopg2
 from supabase import create_client, Client
 import os
 import pandas as pd
@@ -8,10 +9,10 @@ import uuid
 import json
 import zipfile
 import io
+import base64
 from bs4 import BeautifulSoup
 import feedparser
 from datetime import datetime, timedelta
-import base64
 
 try:
     import google.generativeai as genai
@@ -25,9 +26,11 @@ CLIENT_ID = st.secrets["CLIENT_ID"]
 CLIENT_SECRET = st.secrets["CLIENT_SECRET"]
 REDIRECT_URI = st.secrets["REDIRECT_URI"]
 ADMIN_EMAILS = [st.secrets["ADMIN_EMAIL"]]
+GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", "")
+
 SUPA_URL = st.secrets["SUPABASE_URL"]
 SUPA_KEY = st.secrets["SUPABASE_KEY"]
-GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", "")
+DB_CONN_STR = st.secrets["DB_CONNECTION_STRING"]
 
 # Initialize Clients
 supabase: Client = create_client(SUPA_URL, SUPA_KEY)
@@ -55,10 +58,6 @@ def apply_futuristic_css():
     .system-status { font-family: 'Share Tech Mono', monospace; color: #00ffcc; font-size: 0.8rem; margin-bottom: 15px; animation: blink 2s linear infinite; }
     .system-status-offline { color: #ff4757 !important; text-shadow: 0 0 10px #ff4757 !important; }
     @keyframes blink { 0%, 100% { opacity: 1; text-shadow: 0 0 10px #00ffcc; } 50% { opacity: 0.4; text-shadow: none; } }
-    .cyber-btn { display: inline-block; margin-top: 20px; padding: 15px 40px; background: rgba(0, 242, 254, 0.1); color: #00f2fe !important; font-family: 'Share Tech Mono', monospace; font-size: 1.2rem; font-weight: bold; text-decoration: none; border: 1px solid #00f2fe; border-radius: 4px; text-transform: uppercase; letter-spacing: 2px; transition: all 0.3s ease; box-shadow: inset 0 0 10px rgba(0, 242, 254, 0.1), 0 0 15px rgba(0, 242, 254, 0.2); }
-    .cyber-btn:hover { background: #00f2fe; color: #050810 !important; box-shadow: 0 0 30px rgba(0, 242, 254, 0.8); transform: scale(1.05); }
-    .admin-bypass-btn { margin-top: 15px; font-size: 0.8rem !important; border: 1px solid #ff4757 !important; color: #ff4757 !important; background: transparent !important; box-shadow: none !important;}
-    .admin-bypass-btn:hover { background: #ff4757 !important; color: white !important; box-shadow: 0 0 20px #ff4757 !important; }
     .app-title-small { font-size: 2.5rem; font-weight: 900; background: linear-gradient(90deg, #00f2fe 0%, #4facfe 50%, #b06ab3 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; text-shadow: 0px 0px 15px rgba(0, 242, 254, 0.3); margin-bottom: 0px; text-transform: uppercase; }
     .cyber-warning-banner { background: rgba(255, 165, 2, 0.1); border: 1px solid #ffa502; color: #ffa502; padding: 12px; border-radius: 5px; text-align: center; font-family: 'Share Tech Mono', monospace; font-weight: bold; margin-bottom: 20px; box-shadow: 0 0 10px rgba(255, 165, 2, 0.2); animation: pulse-warn 2s infinite; letter-spacing: 1px;}
     @keyframes pulse-warn { 0% { box-shadow: 0 0 10px rgba(255, 165, 2, 0.2); } 50% { box-shadow: 0 0 20px rgba(255, 165, 2, 0.5); } 100% { box-shadow: 0 0 10px rgba(255, 165, 2, 0.2); } }
@@ -78,12 +77,32 @@ def apply_futuristic_css():
 apply_futuristic_css()
 
 # ==========================================
-# 3. HELPER FUNCTIONS
+# 3. DATABASE INITIALIZATION (RAW POSTGRES)
+# ==========================================
+def init_db():
+    try:
+        conn = psycopg2.connect(DB_CONN_STR)
+        c = conn.cursor()
+        c.execute('''CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, title TEXT, company TEXT, location TEXT, url TEXT, source TEXT, description TEXT, salary_amount TEXT, salary_type TEXT, date_added TEXT)''')
+        c.execute('''CREATE TABLE IF NOT EXISTS sys_settings (id INTEGER PRIMARY KEY, is_maintenance INTEGER, resume_time TEXT, message TEXT, is_warning INTEGER DEFAULT 0, warning_msg TEXT DEFAULT '')''')
+        c.execute('''CREATE TABLE IF NOT EXISTS saved_jobs (user_email TEXT, job_id TEXT, PRIMARY KEY (user_email, job_id))''')
+        c.execute('''CREATE TABLE IF NOT EXISTS user_resumes (user_email TEXT PRIMARY KEY, resume_data BYTEA, skills_text TEXT, date_uploaded TEXT)''')
+        c.execute('''CREATE TABLE IF NOT EXISTS users (email TEXT PRIMARY KEY, name TEXT, role TEXT, last_active TEXT, total_logins INTEGER DEFAULT 0)''')
+        c.execute("INSERT INTO sys_settings (id, is_maintenance, resume_time, message, is_warning, warning_msg) VALUES (1, 0, '', '', 0, '') ON CONFLICT (id) DO NOTHING")
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"Table Init Skipped: {e}")
+
+init_db()
+
+# ==========================================
+# 4. API HELPER FUNCTIONS
 # ==========================================
 def get_sys_status():
-    response = supabase.table('sys_settings').select('*').eq('id', 1).execute()
-    if len(response.data) > 0:
-        row = response.data[0]
+    res = supabase.table('sys_settings').select('*').eq('id', 1).execute()
+    if res.data:
+        row = res.data[0]
         is_maint, res_time, msg, is_warn, warn_msg = row.get('is_maintenance',0), row.get('resume_time',''), row.get('message',''), row.get('is_warning',0), row.get('warning_msg','')
         
         if is_maint == 1 and res_time and datetime.now() > datetime.strptime(res_time, "%Y-%m-%d %H:%M:%S"):
@@ -180,13 +199,21 @@ if not st.session_state['logged_in'] and 'code' in st.query_params:
             email = user_data.get("email")
             role = "admin" if email in ADMIN_EMAILS else "seeker"
             name = user_data.get("name")
-            
             st.session_state.update({'logged_in': True, 'user_name': name, 'user_email': email, 'user_role': role})
             st.query_params.clear()
             
+            # Upsert user data safely via REST API
             now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            supabase.table('users').upsert({'email': email, 'name': name, 'role': role, 'last_active': now_str}).execute()
             
+            try:
+                # Fetch first to get current login count
+                fetch_usr = supabase.table('users').select('total_logins').eq('email', email).execute()
+                current_logins = fetch_usr.data[0]['total_logins'] if fetch_usr.data else 0
+                new_logins = current_logins + 1
+                supabase.table('users').upsert({'email': email, 'name': name, 'role': role, 'last_active': now_str, 'total_logins': new_logins}).execute()
+            except Exception as e:
+                print(f"User metric update failed: {e}")
+                
             st.rerun()
         else: 
             st.error("Access Denied. Invalid authorization protocols.")
@@ -258,10 +285,13 @@ if not st.session_state['logged_in']:
     df_public = pd.DataFrame(res.data)
     
     if not df_public.empty:
-        df_public['date_added'] = pd.to_datetime(df_public['date_added'], errors='coerce').fillna(pd.to_datetime('today'))
+        if 'date_added' in df_public.columns: df_public['date_added'] = pd.to_datetime(df_public['date_added'], errors='coerce').fillna(pd.to_datetime('today'))
+        else: df_public['date_added'] = pd.to_datetime('today')
+        
         thirty_days_ago = pd.to_datetime('today') - timedelta(days=30)
         df_public = df_public[df_public['date_added'] >= thirty_days_ago]
         df_public = df_public.sort_values(by='date_added', ascending=False).head(10)
+        
         for _, row in df_public.iterrows(): display_job_card(row, is_admin=False, is_teaser=True)
     else: st.info("Grid is currently initiating. Check back later for new uplinks.")
 
@@ -308,12 +338,15 @@ else:
             
         st.write("---")
 
-        if GEMINI_API_KEY: tab1, tab_ai, tab2, tab_cand, tab_analytics, tab3 = st.tabs(["[ ➕ INJECT ]", "[ 🧠 AI IMPORT ]", "[ 📋 NODES ]", "[ 📄 CANDIDATES ]", "[ 📈 ANALYTICS ]", "[ ⚙️ SYS ]"])
-        else: tab1, tab2, tab_cand, tab_analytics, tab3 = st.tabs(["[ ➕ INJECT ]", "[ 📋 NODES ]", "[ 📄 CANDIDATES ]", "[ 📈 ANALYTICS ]", "[ ⚙️ SYS ]"])
+        if GEMINI_API_KEY:
+            tab1, tab_ai, tab2, tab_cand, tab_analytics, tab3 = st.tabs(["[ ➕ INJECT ]", "[ 🧠 AI IMPORT ]", "[ 📋 NODES ]", "[ 📄 CANDIDATES ]", "[ 📈 ANALYTICS ]", "[ ⚙️ SYS ]"])
+        else:
+            tab1, tab2, tab_cand, tab_analytics, tab3 = st.tabs(["[ ➕ INJECT ]", "[ 📋 NODES ]", "[ 📄 CANDIDATES ]", "[ 📈 ANALYTICS ]", "[ ⚙️ SYS ]"])
+            tab_ai = None
             
         with tab_analytics:
             st.markdown("#### Real-Time User Telemetry")
-            res_users = supabase.table('users').select("*").execute()
+            res_users = supabase.table('users').select("*").order('last_active', desc=True).execute()
             df_users = pd.DataFrame(res_users.data)
             if not df_users.empty:
                 df_users['last_active'] = pd.to_datetime(df_users['last_active'], errors='coerce')
@@ -326,10 +359,12 @@ else:
                 col_a3.metric("🔄 TOTAL NETWORK LOGINS", df_users['total_logins'].sum())
                 
                 st.write("---")
+                st.markdown("##### User Directory")
                 df_display = df_users.copy()
                 df_display['Status'] = df_display['last_active'].apply(lambda x: "🟢 Online" if x >= five_mins_ago else "🔴 Offline")
                 df_display['Last Seen'] = df_display['last_active'].dt.strftime('%Y-%m-%d %H:%M:%S')
                 df_display = df_display[['Status', 'name', 'email', 'total_logins', 'Last Seen']]
+                df_display.columns = ['Status', 'Name', 'Email', 'Total Logins', 'Last Seen']
                 st.dataframe(df_display, use_container_width=True, hide_index=True)
             else: st.info("No user telemetry data found.")
 
@@ -364,7 +399,6 @@ else:
         with tab1:
             with st.container(border=True):
                 st.markdown("#### INJECT MANUAL NODE")
-                
                 if 'manual_url' not in st.session_state: st.session_state['manual_url'] = ""
                 if 'manual_desc' not in st.session_state: st.session_state['manual_desc'] = ""
                 if 'm_title' not in st.session_state: st.session_state['m_title'] = ""
@@ -375,9 +409,13 @@ else:
                 
                 def sync_url_to_desc():
                     url = st.session_state['manual_url']
-                    if url and "Apply :-" not in st.session_state['manual_desc']: st.session_state['manual_desc'] = f"Apply :- {url}\n\n" + st.session_state['manual_desc']
+                    if url and "Apply :-" not in st.session_state['manual_desc']:
+                        st.session_state['manual_desc'] = f"Apply :- {url}\n\n" + st.session_state['manual_desc']
+                
                 def clear_form_cb():
-                    for k in ['m_title', 'm_company', 'm_location', 'm_sal_amount', 'manual_url', 'manual_desc']: st.session_state[k] = ""
+                    for k in ['m_title', 'm_company', 'm_location', 'm_sal_amount', 'manual_url', 'manual_desc']: 
+                        st.session_state[k] = ""
+                
                 def inject_node_cb():
                     t = st.session_state['m_title']
                     c = st.session_state['m_company']
@@ -415,80 +453,77 @@ else:
                 with col_btn1: st.button("🚀 INJECT NODE", type="primary", use_container_width=True, on_click=inject_node_cb)
                 with col_btn2: st.button("🧹 CLEAR ALL", use_container_width=True, on_click=clear_form_cb)
 
-        try:
-            if tab_ai:
-                with tab_ai:
-                    st.markdown("#### 🧠 Free Gemini AI Importer: Copy-Paste Any Webpage")
-                    if st.session_state['draft_job'] is None:
-                        raw_messy_text = st.text_area("Paste Messy Webpage Text Here", height=200, placeholder="Pasted raw text from Mercor...")
-                        ai_target_url = st.text_input("Target Apply URL", placeholder="https://work.mercor.com/explore?...")
-                        if st.button("🧠 DECIPHER RAW DATA", type="primary", use_container_width=True):
-                            if raw_messy_text and ai_target_url:
-                                with st.spinner("Gemini 1.5 Flash Deciphering data..."):
-                                    try:
-                                        model = genai.GenerativeModel("gemini-1.5-flash")
-                                        prompt = f"""
-                                        Analyze this raw, messy webpage text copied from a career website:
-                                        {raw_messy_text[:4000]}
-                                        
-                                        Extract and format the information exactly into a JSON structure. 
-                                        Do NOT include markdown formatting like ```json or ```. Return ONLY raw JSON text.
-                                        {{
-                                            "title": "Clean, professional Job Title",
-                                            "company": "Company Name",
-                                            "location": "Specific city/state or 'Remote'",
-                                            "description": "Write a highly professional, formatted 4-sentence summary of the role, benefits, and requirements.",
-                                            "salary_amount": "Estimate or amount (e.g. 150,000) or 'N/A'",
-                                            "salary_type": "Yearly, Monthly, Hourly, or Unspecified"
-                                        }}
-                                        """
-                                        response = model.generate_content(prompt)
-                                        ai_output = response.text.strip()
-                                        if ai_output.startswith('```json'): ai_output = ai_output[7:]
-                                        if ai_output.startswith('```'): ai_output = ai_output[3:]
-                                        if ai_output.endswith('```'): ai_output = ai_output[:-3]
-                                        
-                                        parsed_json = json.loads(ai_output.strip())
-                                        parsed_json['url'] = ai_target_url
-                                        st.session_state['draft_job'] = parsed_json
-                                        st.rerun()
-                                    except Exception as e: st.error(f"Gemini Decipher failed: Please try again. Error: {e}")
-                            else: st.warning("Please paste the messy webpage text and add the apply URL.")
-                    else:
-                        st.warning("⚠️ DRAFT DECIPHERED. Please review, edit, and confirm the job details below before publishing.")
-                        with st.container(border=True):
-                            col_dt1, col_dt2 = st.columns(2)
-                            with col_dt1: d_title = st.text_input("Job Title", value=st.session_state['draft_job'].get('title', ''))
-                            with col_dt2: d_company = st.text_input("Entity / Company", value=st.session_state['draft_job'].get('company', ''))
-                            col_dt3, col_dt4, col_dt5 = st.columns([2, 2, 1])
-                            with col_dt3: d_location = st.text_input("Location", value=st.session_state['draft_job'].get('location', ''))
-                            with col_dt4: d_sal_amount = st.text_input("Compensation", value=st.session_state['draft_job'].get('salary_amount', ''))
-                            with col_dt5:
-                                cycle_options = ["Yearly", "Monthly", "Hourly", "Unspecified"]
-                                default_cycle = st.session_state['draft_job'].get('salary_type', 'Unspecified')
-                                cycle_idx = cycle_options.index(default_cycle) if default_cycle in cycle_options else 3
-                                d_sal_type = st.selectbox("Cycle", cycle_options, index=cycle_idx)
-                                
-                            d_url = st.text_input("Uplink URL", value=st.session_state['draft_job'].get('url', ''))
-                            d_desc = st.text_area("Full Job Description", value=st.session_state['draft_job'].get('description', ''), height=150)
+        if tab_ai:
+            with tab_ai:
+                st.markdown("#### 🧠 Free Gemini AI Importer: Copy-Paste Any Webpage")
+                if st.session_state['draft_job'] is None:
+                    raw_messy_text = st.text_area("Paste Messy Webpage Text Here", height=200, placeholder="Pasted raw text from Mercor...")
+                    ai_target_url = st.text_input("Target Apply URL", placeholder="https://work.mercor.com/explore?...")
+                    if st.button("🧠 DECIPHER RAW DATA", type="primary", use_container_width=True):
+                        if raw_messy_text and ai_target_url:
+                            with st.spinner("Gemini 1.5 Flash Deciphering data..."):
+                                try:
+                                    model = genai.GenerativeModel("gemini-1.5-flash")
+                                    prompt = f"""
+                                    Analyze this raw, messy webpage text copied from a career website:
+                                    {raw_messy_text[:4000]}
+                                    
+                                    Extract and format the information exactly into a JSON structure. 
+                                    Do NOT include markdown formatting like ```json or ```. Return ONLY raw JSON text.
+                                    {{
+                                        "title": "Clean, professional Job Title",
+                                        "company": "Company Name",
+                                        "location": "Specific city/state or 'Remote'",
+                                        "description": "Write a highly professional, formatted 4-sentence summary of the role, benefits, and requirements.",
+                                        "salary_amount": "Estimate or amount (e.g. 150,000) or 'N/A'",
+                                        "salary_type": "Yearly, Monthly, Hourly, or Unspecified"
+                                    }}
+                                    """
+                                    response = model.generate_content(prompt)
+                                    ai_output = response.text.strip()
+                                    if ai_output.startswith('```json'): ai_output = ai_output[7:]
+                                    if ai_output.startswith('```'): ai_output = ai_output[3:]
+                                    if ai_output.endswith('```'): ai_output = ai_output[:-3]
+                                    
+                                    parsed_json = json.loads(ai_output.strip())
+                                    parsed_json['url'] = ai_target_url
+                                    st.session_state['draft_job'] = parsed_json
+                                    st.rerun()
+                                except Exception as e: st.error(f"Gemini Decipher failed: Please try again. Error: {e}")
+                        else: st.warning("Please paste the messy webpage text and add the apply URL.")
+                else:
+                    st.warning("⚠️ DRAFT DECIPHERED. Please review, edit, and confirm the job details below before publishing.")
+                    with st.container(border=True):
+                        col_dt1, col_dt2 = st.columns(2)
+                        with col_dt1: d_title = st.text_input("Job Title", value=st.session_state['draft_job'].get('title', ''))
+                        with col_dt2: d_company = st.text_input("Entity / Company", value=st.session_state['draft_job'].get('company', ''))
+                        col_dt3, col_dt4, col_dt5 = st.columns([2, 2, 1])
+                        with col_dt3: d_location = st.text_input("Location", value=st.session_state['draft_job'].get('location', ''))
+                        with col_dt4: d_sal_amount = st.text_input("Compensation", value=st.session_state['draft_job'].get('salary_amount', ''))
+                        with col_dt5:
+                            cycle_options = ["Yearly", "Monthly", "Hourly", "Unspecified"]
+                            default_cycle = st.session_state['draft_job'].get('salary_type', 'Unspecified')
+                            cycle_idx = cycle_options.index(default_cycle) if default_cycle in cycle_options else 3
+                            d_sal_type = st.selectbox("Cycle", cycle_options, index=cycle_idx)
                             
-                            col_btn1, col_btn2 = st.columns(2)
-                            with col_btn1:
-                                if st.button("🚀 CONFIRM & INJECT NODE", type="primary", use_container_width=True):
-                                    today_str = datetime.now().strftime("%Y-%m-%d")
-                                    job_id = "AI_" + str(uuid.uuid4())[:8]
-                                    data = {"id": job_id, "title": d_title, "company": d_company, "location": d_location, "url": d_url, "source": "Gemini AI", "description": d_desc, "salary_amount": d_sal_amount, "salary_type": d_sal_type, "date_added": today_str}
-                                    supabase.table('jobs').insert(data).execute()
-                                    st.session_state['draft_job'] = None
-                                    st.balloons()
-                                    st.success("🚀 Node Injected and Live on grid!")
-                                    st.rerun()
-                            with col_btn2:
-                                if st.button("❌ CANCEL DRAFT", use_container_width=True):
-                                    st.session_state['draft_job'] = None
-                                    st.rerun()
-        except Exception:
-            pass
+                        d_url = st.text_input("Uplink URL", value=st.session_state['draft_job'].get('url', ''))
+                        d_desc = st.text_area("Full Job Description", value=st.session_state['draft_job'].get('description', ''), height=150)
+                        
+                        col_btn1, col_btn2 = st.columns(2)
+                        with col_btn1:
+                            if st.button("🚀 CONFIRM & INJECT NODE", type="primary", use_container_width=True):
+                                today_str = datetime.now().strftime("%Y-%m-%d")
+                                job_id = "AI_" + str(uuid.uuid4())[:8]
+                                data = {"id": job_id, "title": d_title, "company": d_company, "location": d_location, "url": d_url, "source": "Gemini AI", "description": d_desc, "salary_amount": d_sal_amount, "salary_type": d_sal_type, "date_added": today_str}
+                                supabase.table('jobs').insert(data).execute()
+                                st.session_state['draft_job'] = None
+                                st.balloons()
+                                st.success("🚀 Node Injected and Live on grid!")
+                                st.rerun()
+                        with col_btn2:
+                            if st.button("❌ CANCEL DRAFT", use_container_width=True):
+                                st.session_state['draft_job'] = None
+                                st.rerun()
 
         with tab_cand:
             st.markdown("#### Registered Candidate Mainframe")
@@ -505,7 +540,6 @@ else:
                         for cand in active_resumes:
                             email = cand['user_email']
                             raw_b64 = cand['resume_data']
-                            import base64
                             zip_file.writestr(f"{email.split('@')[0]}_resume.pdf", base64.b64decode(raw_b64))
                     zip_data = zip_buffer.getvalue()
 
@@ -540,7 +574,6 @@ else:
                         with col_dl:
                             st.write("") 
                             if resume_data is not None:
-                                import base64
                                 decoded_pdf = base64.b64decode(resume_data)
                                 st.download_button(label="DOWNLOAD PDF 💾", data=decoded_pdf, file_name=f"{email.split('@')[0]}_resume.pdf", mime="application/pdf", use_container_width=True, key=f"dl_{email}", on_click=purge_resume_data, args=(email,))
                             else: st.button("🧹 PURGED / SECURED", key=f"purged_{email}", disabled=True, use_container_width=True)
@@ -615,7 +648,6 @@ else:
                             
                             today_str = datetime.now().strftime("%Y-%m-%d")
                             pdf_bytes = uploaded_file.getvalue()
-                            import base64
                             b64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
                             
                             skills_prompt = f"Read this resume:\n{resume_text[:2000]}\n\nReturn a clean, comma-separated list of the top 5 technical skills found. Return ONLY the skills, nothing else."
