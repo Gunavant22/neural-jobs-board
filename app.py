@@ -1,7 +1,6 @@
 import streamlit as st
 import requests
 import psycopg2
-from supabase import create_client, Client
 import os
 import pandas as pd
 import PyPDF2
@@ -9,7 +8,6 @@ import uuid
 import json
 import zipfile
 import io
-import base64
 from bs4 import BeautifulSoup
 import feedparser
 from datetime import datetime, timedelta
@@ -26,14 +24,9 @@ CLIENT_ID = st.secrets["CLIENT_ID"]
 CLIENT_SECRET = st.secrets["CLIENT_SECRET"]
 REDIRECT_URI = st.secrets["REDIRECT_URI"]
 ADMIN_EMAILS = [st.secrets["ADMIN_EMAIL"]]
+DB_CONN_STR = st.secrets["DB_CONNECTION_STRING"]
 GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", "")
 
-SUPA_URL = st.secrets["SUPABASE_URL"]
-SUPA_KEY = st.secrets["SUPABASE_KEY"]
-DB_CONN_STR = st.secrets["DB_CONNECTION_STRING"]
-
-# Initialize Clients
-supabase: Client = create_client(SUPA_URL, SUPA_KEY)
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
 
@@ -58,6 +51,10 @@ def apply_futuristic_css():
     .system-status { font-family: 'Share Tech Mono', monospace; color: #00ffcc; font-size: 0.8rem; margin-bottom: 15px; animation: blink 2s linear infinite; }
     .system-status-offline { color: #ff4757 !important; text-shadow: 0 0 10px #ff4757 !important; }
     @keyframes blink { 0%, 100% { opacity: 1; text-shadow: 0 0 10px #00ffcc; } 50% { opacity: 0.4; text-shadow: none; } }
+    .cyber-btn { position: relative; z-index: 999; cursor: pointer; display: inline-block; margin-top: 20px; padding: 15px 40px; background: rgba(0, 242, 254, 0.1); color: #00f2fe !important; font-family: 'Share Tech Mono', monospace; font-size: 1.2rem; font-weight: bold; text-decoration: none; border: 1px solid #00f2fe; border-radius: 4px; text-transform: uppercase; letter-spacing: 2px; transition: all 0.3s ease; box-shadow: inset 0 0 10px rgba(0, 242, 254, 0.1), 0 0 15px rgba(0, 242, 254, 0.2); }
+    .cyber-btn:hover { background: #00f2fe; color: #050810 !important; box-shadow: 0 0 30px rgba(0, 242, 254, 0.8); transform: scale(1.05); }
+    .admin-bypass-btn { margin-top: 15px; font-size: 0.8rem !important; border: 1px solid #ff4757 !important; color: #ff4757 !important; background: transparent !important; box-shadow: none !important;}
+    .admin-bypass-btn:hover { background: #ff4757 !important; color: white !important; box-shadow: 0 0 20px #ff4757 !important; }
     .app-title-small { font-size: 2.5rem; font-weight: 900; background: linear-gradient(90deg, #00f2fe 0%, #4facfe 50%, #b06ab3 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; text-shadow: 0px 0px 15px rgba(0, 242, 254, 0.3); margin-bottom: 0px; text-transform: uppercase; }
     .cyber-warning-banner { background: rgba(255, 165, 2, 0.1); border: 1px solid #ffa502; color: #ffa502; padding: 12px; border-radius: 5px; text-align: center; font-family: 'Share Tech Mono', monospace; font-weight: bold; margin-bottom: 20px; box-shadow: 0 0 10px rgba(255, 165, 2, 0.2); animation: pulse-warn 2s infinite; letter-spacing: 1px;}
     @keyframes pulse-warn { 0% { box-shadow: 0 0 10px rgba(255, 165, 2, 0.2); } 50% { box-shadow: 0 0 20px rgba(255, 165, 2, 0.5); } 100% { box-shadow: 0 0 10px rgba(255, 165, 2, 0.2); } }
@@ -77,53 +74,50 @@ def apply_futuristic_css():
 apply_futuristic_css()
 
 # ==========================================
-# 3. DATABASE INITIALIZATION (RAW POSTGRES)
+# 3. HELPER FUNCTIONS
 # ==========================================
-def init_db():
+def execute_query(query, params=None, fetch=False):
+    """🛠️ CRASH-PROOF DB READER: Safely fetches data without Segfaults!"""
     try:
         conn = psycopg2.connect(DB_CONN_STR)
         c = conn.cursor()
-        c.execute('''CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, title TEXT, company TEXT, location TEXT, url TEXT, source TEXT, description TEXT, salary_amount TEXT, salary_type TEXT, date_added TEXT)''')
-        c.execute('''CREATE TABLE IF NOT EXISTS sys_settings (id INTEGER PRIMARY KEY, is_maintenance INTEGER, resume_time TEXT, message TEXT, is_warning INTEGER DEFAULT 0, warning_msg TEXT DEFAULT '')''')
-        c.execute('''CREATE TABLE IF NOT EXISTS saved_jobs (user_email TEXT, job_id TEXT, PRIMARY KEY (user_email, job_id))''')
-        c.execute('''CREATE TABLE IF NOT EXISTS user_resumes (user_email TEXT PRIMARY KEY, resume_data BYTEA, skills_text TEXT, date_uploaded TEXT)''')
-        c.execute('''CREATE TABLE IF NOT EXISTS users (email TEXT PRIMARY KEY, name TEXT, role TEXT, last_active TEXT, total_logins INTEGER DEFAULT 0)''')
-        c.execute("INSERT INTO sys_settings (id, is_maintenance, resume_time, message, is_warning, warning_msg) VALUES (1, 0, '', '', 0, '') ON CONFLICT (id) DO NOTHING")
+        if params: c.execute(query, params)
+        else: c.execute(query)
+        
+        if fetch:
+            rows = c.fetchall()
+            cols = [desc[0] for desc in c.description] if c.description else []
+            conn.commit()
+            conn.close()
+            return pd.DataFrame(rows, columns=cols)
+        
         conn.commit()
         conn.close()
     except Exception as e:
-        print(f"Table Init Skipped: {e}")
+        st.error(f"Database Error: {e}")
+        return pd.DataFrame()
 
-init_db()
-
-# ==========================================
-# 4. API HELPER FUNCTIONS
-# ==========================================
 def get_sys_status():
-    res = supabase.table('sys_settings').select('*').eq('id', 1).execute()
-    if res.data:
-        row = res.data[0]
-        is_maint, res_time, msg, is_warn, warn_msg = row.get('is_maintenance',0), row.get('resume_time',''), row.get('message',''), row.get('is_warning',0), row.get('warning_msg','')
-        
+    df = execute_query("SELECT is_maintenance, resume_time, message, is_warning, warning_msg FROM sys_settings WHERE id=1", fetch=True)
+    if not df.empty:
+        row = df.iloc[0]
+        is_maint, res_time, msg, is_warn, warn_msg = row['is_maintenance'], row['resume_time'], row['message'], row['is_warning'], row['warning_msg']
         if is_maint == 1 and res_time and datetime.now() > datetime.strptime(res_time, "%Y-%m-%d %H:%M:%S"):
-            supabase.table('sys_settings').update({'is_maintenance': 0, 'is_warning': 0}).eq('id', 1).execute()
+            execute_query("UPDATE sys_settings SET is_maintenance=0, is_warning=0 WHERE id=1")
             return (0, "", "", 0, "")
         return (is_maint, res_time, msg, is_warn, warn_msg)
     return (0, "", "", 0, "")
 
 def purge_resume_data(email):
-    try:
-        supabase.table('user_resumes').update({'resume_data': None}).eq('user_email', email).execute()
-        st.toast(f"🧹 Database purged for {email}. Space saved!")
-    except Exception as e: st.error(f"Purge failed: {e}")
+    execute_query("UPDATE user_resumes SET resume_data = NULL WHERE user_email = %s", (email,))
+    st.toast(f"🧹 Database purged for {email}. Space saved!")
 
 def generate_zip_datapack(active_resumes):
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
-        for cand in active_resumes:
-            email = cand['user_email']
-            data = base64.b64decode(cand['resume_data'])
-            zip_file.writestr(f"{email.split('@')[0]}_resume.pdf", data)
+        for index, cand in active_resumes.iterrows():
+            if cand['resume_data'] is not None:
+                zip_file.writestr(f"{cand['user_email'].split('@')[0]}_resume.pdf", bytes(cand['resume_data']))
     return zip_buffer.getvalue()
 
 def extract_text_from_pdf(uploaded_file):
@@ -131,14 +125,13 @@ def extract_text_from_pdf(uploaded_file):
     except: return ""
 
 def display_job_card(row, is_admin=False, user_email=None, is_saved=False, is_teaser=False):
-    is_expired = False
-    if is_admin and pd.to_datetime(row['date_added']) < (pd.to_datetime('today') - timedelta(days=30)): is_expired = True
+    # Safe String Date Comparison
+    thirty_days_str = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
+    is_expired = is_admin and str(row['date_added']) < thirty_days_str
 
     sal_val = str(row['salary_amount']).strip()
-    if sal_val and sal_val.lower() not in ["n/a", ""]:
-        if not sal_val.startswith("$"): sal_val = "$" + sal_val
-        sal = f"{sal_val} / {row['salary_type']}"
-    else: sal = "Unlisted"
+    sal = f"${sal_val} / {row['salary_type']}" if sal_val and sal_val.lower() not in ["n/a", ""] and not sal_val.startswith("$") else (f"{sal_val} / {row['salary_type']}" if sal_val and sal_val.lower() not in ["n/a", ""] else "Unlisted")
+    date_str = str(row['date_added'])[:10]
 
     if is_teaser:
         with st.container(border=True):
@@ -157,11 +150,9 @@ def display_job_card(row, is_admin=False, user_email=None, is_saved=False, is_te
         col_icon, col_details, col_action = st.columns([1, 7, 2])
         with col_icon: st.markdown(f"<div class='company-avatar'>{row['company'][0].upper() if row['company'] else 'X'}</div>", unsafe_allow_html=True)
         with col_details:
-            title_html = f"<h3 style='margin-bottom:0px; color:#ffffff;'>{row['title']}</h3>"
-            if is_expired: title_html = f"<h3 style='margin-bottom:0px; color:#ff4757;'>[EXPIRED] {row['title']}</h3>"
+            title_html = f"<h3 style='margin-bottom:0px; color:#ff4757;'>[EXPIRED] {row['title']}</h3>" if is_expired else f"<h3 style='margin-bottom:0px; color:#ffffff;'>{row['title']}</h3>"
             st.markdown(title_html, unsafe_allow_html=True)
             st.markdown(f"<p style='color:#8892b0; font-size: 1rem; margin-top: 5px;'>{row['company']}</p>", unsafe_allow_html=True)
-            date_str = str(row['date_added'])[:10]
             st.markdown(f"<span class='tech-tag'>LOC: {row['location']}</span> <span class='tech-tag'>PAY: {sal}</span> <span class='tech-tag'>DATE: {date_str}</span>", unsafe_allow_html=True)
         with col_action:
             st.write("")
@@ -169,18 +160,18 @@ def display_job_card(row, is_admin=False, user_email=None, is_saved=False, is_te
             if not is_admin and user_email:
                 if is_saved:
                     if st.button("❌ REMOVE", key=f"unsave_{row['id']}", use_container_width=True):
-                        supabase.table('saved_jobs').delete().eq('user_email', user_email).eq('job_id', row['id']).execute()
+                        execute_query("DELETE FROM saved_jobs WHERE user_email=%s AND job_id=%s", (user_email, row['id']))
                         st.rerun()
                 else:
                     if st.button("⭐ SAVE NODE", key=f"save_{row['id']}", use_container_width=True):
-                        supabase.table('saved_jobs').insert({'user_email': user_email, 'job_id': row['id']}).execute()
+                        execute_query("INSERT INTO saved_jobs (user_email, job_id) VALUES (%s, %s) ON CONFLICT DO NOTHING", (user_email, row['id']))
                         st.rerun()
 
         with st.expander("DECRYPT DATAFILE (View Description)"):
             st.write(row['description'])
 
 # ==========================================
-# 5. LOGIN SYSTEM & MAINTENANCE CHECK
+# 5. STATE MANAGEMENT & OAUTH
 # ==========================================
 if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
 if 'user_role' not in st.session_state: st.session_state['user_role'] = None
@@ -199,26 +190,18 @@ if not st.session_state['logged_in'] and 'code' in st.query_params:
             email = user_data.get("email")
             role = "admin" if email in ADMIN_EMAILS else "seeker"
             name = user_data.get("name")
+            
             st.session_state.update({'logged_in': True, 'user_name': name, 'user_email': email, 'user_role': role})
             st.query_params.clear()
             
-            # Upsert user data safely via REST API
             now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            
-            try:
-                # Fetch first to get current login count
-                fetch_usr = supabase.table('users').select('total_logins').eq('email', email).execute()
-                current_logins = fetch_usr.data[0]['total_logins'] if fetch_usr.data else 0
-                new_logins = current_logins + 1
-                supabase.table('users').upsert({'email': email, 'name': name, 'role': role, 'last_active': now_str, 'total_logins': new_logins}).execute()
-            except Exception as e:
-                print(f"User metric update failed: {e}")
-                
+            execute_query("INSERT INTO users (email, name, role, last_active, total_logins) VALUES (%s, %s, %s, %s, 1) ON CONFLICT (email) DO UPDATE SET last_active = EXCLUDED.last_active, name = EXCLUDED.name, total_logins = users.total_logins + 1", (email, name, role, now_str))
             st.rerun()
         else: 
             st.error("Access Denied. Invalid authorization protocols.")
 
 is_maint, res_time, maint_msg, is_warn, warn_msg = get_sys_status()
+auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}&scope=openid%20email%20profile"
 
 if is_maint == 1 and st.session_state['user_role'] != "admin":
     if st.session_state['logged_in']:
@@ -233,13 +216,11 @@ if is_maint == 1 and st.session_state['user_role'] != "admin":
                 </div>
             </div>
             """, unsafe_allow_html=True)
-            st.write("")
             if st.button("RETREAT (Disconnect)", use_container_width=True):
                 st.session_state.update({'logged_in': False, 'user_role': None, 'user_name': "", 'user_email': ""})
                 st.rerun()
         st.stop()
     else:
-        auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}&scope=openid%20email%20profile"
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
             st.markdown(f"""
@@ -258,10 +239,7 @@ if is_maint == 1 and st.session_state['user_role'] != "admin":
             st.link_button("STAFF LOGIN", auth_url, type="secondary", use_container_width=True)
         st.stop() 
 
-# --- PUBLIC LANDING PAGE (THE TEASER GRID) ---
 if not st.session_state['logged_in']:
-    auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}&scope=openid%20email%20profile"
-    
     col1, col2, col3 = st.columns([1, 3, 1])
     with col2:
         st.markdown(f"""
@@ -281,27 +259,21 @@ if not st.session_state['logged_in']:
     st.divider()
     st.markdown("<h4 style='text-align: center; color: #8892b0; margin-bottom: 30px;'>[ RECENT ACTIVE NODES ]</h4>", unsafe_allow_html=True)
     
-    res = supabase.table('jobs').select("*").execute()
-    df_public = pd.DataFrame(res.data)
-    
+    df_public = execute_query("SELECT * FROM jobs", fetch=True)
     if not df_public.empty:
-        if 'date_added' in df_public.columns: df_public['date_added'] = pd.to_datetime(df_public['date_added'], errors='coerce').fillna(pd.to_datetime('today'))
-        else: df_public['date_added'] = pd.to_datetime('today')
-        
-        thirty_days_ago = pd.to_datetime('today') - timedelta(days=30)
-        df_public = df_public[df_public['date_added'] >= thirty_days_ago]
+        thirty_days_str = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
+        df_public = df_public[df_public['date_added'] >= thirty_days_str]
         df_public = df_public.sort_values(by='date_added', ascending=False).head(10)
-        
         for _, row in df_public.iterrows(): display_job_card(row, is_admin=False, is_teaser=True)
     else: st.info("Grid is currently initiating. Check back later for new uplinks.")
 
 # ==========================================
-# 6. MAIN APP DASHBOARDS (Logged In)
+# 6. DASHBOARDS (Logged In)
 # ==========================================
 else:
     if (datetime.now() - st.session_state['last_heartbeat']).total_seconds() > 60:
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        supabase.table('users').update({'last_active': now_str}).eq('email', st.session_state['user_email']).execute()
+        execute_query("UPDATE users SET last_active = %s WHERE email = %s", (now_str, st.session_state['user_email']))
         st.session_state['last_heartbeat'] = datetime.now()
 
     if is_warn == 1: st.markdown(f"<div class='cyber-warning-banner'>⚠️ SYSTEM NOTICE: {warn_msg}</div>", unsafe_allow_html=True)
@@ -316,56 +288,44 @@ else:
             st.session_state.update({'logged_in': False, 'user_role': None, 'user_name': "", "user_email": ""})
             st.rerun()
 
-    res = supabase.table('jobs').select("*").execute()
-    df = pd.DataFrame(res.data)
-    if 'date_added' in df.columns: df['date_added'] = pd.to_datetime(df['date_added'], errors='coerce').fillna(pd.to_datetime('today'))
-    else: df['date_added'] = pd.to_datetime('today')
+    df = execute_query("SELECT * FROM jobs", fetch=True)
 
     # --- ADMIN VIEW ---
     if st.session_state['user_role'] == "admin":
         st.markdown("### [ GRID METRICS ]")
-        thirty_days_ago = pd.to_datetime('today') - timedelta(days=30)
-        active_nodes = len(df[df['date_added'] >= thirty_days_ago]) if not df.empty else 0
+        thirty_days_str = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
+        active_nodes = len(df[df['date_added'] >= thirty_days_str]) if not df.empty else 0
         
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("TOTAL DATANODES", len(df))
         m2.metric("ACTIVE NODES (30D)", active_nodes)
         m3.metric("EXPIRED NODES", len(df) - active_nodes)
-        
-        if is_maint == 1: m4.metric("SYSTEM STATUS", "MAINTENANCE")
-        elif is_warn == 1: m4.metric("SYSTEM STATUS", "WARNING ACTIVE")
-        else: m4.metric("SYSTEM STATUS", "ONLINE")
+        m4.metric("SYSTEM STATUS", "MAINTENANCE" if is_maint == 1 else "WARNING ACTIVE" if is_warn == 1 else "ONLINE")
             
         st.write("---")
 
-        if GEMINI_API_KEY:
-            tab1, tab_ai, tab2, tab_cand, tab_analytics, tab3 = st.tabs(["[ ➕ INJECT ]", "[ 🧠 AI IMPORT ]", "[ 📋 NODES ]", "[ 📄 CANDIDATES ]", "[ 📈 ANALYTICS ]", "[ ⚙️ SYS ]"])
+        if GEMINI_API_KEY: tab1, tab_ai, tab2, tab_cand, tab_analytics, tab3 = st.tabs(["[ ➕ INJECT ]", "[ 🧠 AI IMPORT ]", "[ 📋 NODES ]", "[ 📄 CANDIDATES ]", "[ 📈 ANALYTICS ]", "[ ⚙️ SYS ]"])
         else:
             tab1, tab2, tab_cand, tab_analytics, tab3 = st.tabs(["[ ➕ INJECT ]", "[ 📋 NODES ]", "[ 📄 CANDIDATES ]", "[ 📈 ANALYTICS ]", "[ ⚙️ SYS ]"])
             tab_ai = None
             
         with tab_analytics:
             st.markdown("#### Real-Time User Telemetry")
-            res_users = supabase.table('users').select("*").order('last_active', desc=True).execute()
-            df_users = pd.DataFrame(res_users.data)
+            df_users = execute_query("SELECT email, name, role, total_logins, last_active FROM users ORDER BY last_active DESC", fetch=True)
             if not df_users.empty:
                 df_users['last_active'] = pd.to_datetime(df_users['last_active'], errors='coerce')
                 five_mins_ago = pd.to_datetime('today') - timedelta(minutes=5)
-                online_count = len(df_users[df_users['last_active'] >= five_mins_ago])
                 
                 col_a1, col_a2, col_a3 = st.columns(3)
                 col_a1.metric("👥 TOTAL USERS", len(df_users))
-                col_a2.metric("🟢 CURRENTLY ONLINE", online_count)
+                col_a2.metric("🟢 CURRENTLY ONLINE", len(df_users[df_users['last_active'] >= five_mins_ago]))
                 col_a3.metric("🔄 TOTAL NETWORK LOGINS", df_users['total_logins'].sum())
                 
                 st.write("---")
-                st.markdown("##### User Directory")
                 df_display = df_users.copy()
                 df_display['Status'] = df_display['last_active'].apply(lambda x: "🟢 Online" if x >= five_mins_ago else "🔴 Offline")
                 df_display['Last Seen'] = df_display['last_active'].dt.strftime('%Y-%m-%d %H:%M:%S')
-                df_display = df_display[['Status', 'name', 'email', 'total_logins', 'Last Seen']]
-                df_display.columns = ['Status', 'Name', 'Email', 'Total Logins', 'Last Seen']
-                st.dataframe(df_display, use_container_width=True, hide_index=True)
+                st.dataframe(df_display[['Status', 'name', 'email', 'total_logins', 'Last Seen']], use_container_width=True, hide_index=True)
             else: st.info("No user telemetry data found.")
 
         with tab3:
@@ -374,11 +334,11 @@ else:
                 with st.form("warn_form"):
                     w_msg = st.text_input("Warning Message", value="System maintenance will begin in 15 minutes.")
                     if st.form_submit_button("📢 BROADCAST WARNING"):
-                        supabase.table('sys_settings').update({'is_warning': 1, 'warning_msg': w_msg}).eq('id', 1).execute()
+                        execute_query("UPDATE sys_settings SET is_warning=1, warning_msg=%s WHERE id=1", (w_msg,))
                         st.rerun()
             else:
                 if st.button("🔇 CLEAR WARNING"):
-                    supabase.table('sys_settings').update({'is_warning': 0, 'warning_msg': ''}).eq('id', 1).execute()
+                    execute_query("UPDATE sys_settings SET is_warning=0, warning_msg='' WHERE id=1")
                     st.rerun()
 
             st.write("---")
@@ -389,51 +349,37 @@ else:
                     m_msg = st.text_input("Lockdown Message", value="Upgrading core neural network. Stand by.")
                     if st.form_submit_button("🚨 INITIATE LOCKDOWN", type="primary"):
                         resume_calc = (datetime.now() + timedelta(hours=downtime_hours)).strftime("%Y-%m-%d %H:%M:%S")
-                        supabase.table('sys_settings').update({'is_maintenance': 1, 'resume_time': resume_calc, 'message': m_msg}).eq('id', 1).execute()
+                        execute_query("UPDATE sys_settings SET is_maintenance=1, resume_time=%s, message=%s WHERE id=1", (resume_calc, m_msg))
                         st.rerun()
             else:
                 if st.button("✅ DEACTIVATE LOCKDOWN"):
-                    supabase.table('sys_settings').update({'is_maintenance': 0}).eq('id', 1).execute()
+                    execute_query("UPDATE sys_settings SET is_maintenance=0 WHERE id=1")
                     st.rerun()
 
         with tab1:
             with st.container(border=True):
                 st.markdown("#### INJECT MANUAL NODE")
-                if 'manual_url' not in st.session_state: st.session_state['manual_url'] = ""
-                if 'manual_desc' not in st.session_state: st.session_state['manual_desc'] = ""
-                if 'm_title' not in st.session_state: st.session_state['m_title'] = ""
-                if 'm_company' not in st.session_state: st.session_state['m_company'] = ""
-                if 'm_location' not in st.session_state: st.session_state['m_location'] = ""
-                if 'm_sal_amount' not in st.session_state: st.session_state['m_sal_amount'] = ""
-                if 'inject_status' not in st.session_state: st.session_state['inject_status'] = None
+                for k in ['m_title', 'm_company', 'm_location', 'm_sal_amount', 'manual_url', 'manual_desc']:
+                    if k not in st.session_state: st.session_state[k] = ""
                 
-                def sync_url_to_desc():
-                    url = st.session_state['manual_url']
-                    if url and "Apply :-" not in st.session_state['manual_desc']:
-                        st.session_state['manual_desc'] = f"Apply :- {url}\n\n" + st.session_state['manual_desc']
-                
-                def clear_form_cb():
-                    for k in ['m_title', 'm_company', 'm_location', 'm_sal_amount', 'manual_url', 'manual_desc']: 
-                        st.session_state[k] = ""
-                
-                def inject_node_cb():
-                    t = st.session_state['m_title']
-                    c = st.session_state['m_company']
+                def sync_url():
                     u = st.session_state['manual_url']
-                    if t and c and u:
+                    if u and "Apply :-" not in st.session_state['manual_desc']: st.session_state['manual_desc'] = f"Apply :- {u}\n\n" + st.session_state['manual_desc']
+                def clear_manual():
+                    for k in ['m_title', 'm_company', 'm_location', 'm_sal_amount', 'manual_url', 'manual_desc']: st.session_state[k] = ""
+                def inject_man():
+                    if st.session_state.m_title and st.session_state.m_company and st.session_state.manual_url:
                         loc = st.session_state.get('m_location', 'Remote') if st.session_state.get('m_is_remote') == 'No' else 'Remote'
-                        today_str = datetime.now().strftime("%Y-%m-%d")
-                        job_id = "MAN_"+str(uuid.uuid4())[:8]
-                        data = {"id": job_id, "title": t, "company": c, "location": loc, "url": u, "source": "Manual", "description": st.session_state['manual_desc'] or "No desc", "salary_amount": st.session_state['m_sal_amount'] or "N/A", "salary_type": st.session_state.get('m_sal_type', 'Unspecified'), "date_added": today_str}
-                        supabase.table('jobs').insert(data).execute()
-                        clear_form_cb()
-                        st.session_state['inject_status'] = "success"
-                    else: st.session_state['inject_status'] = "error"
+                        execute_query("INSERT INTO jobs (id, title, company, location, url, source, description, salary_amount, salary_type, date_added) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                                  ("MAN_"+str(uuid.uuid4())[:8], st.session_state.m_title, st.session_state.m_company, loc, st.session_state.manual_url, "Manual", st.session_state.manual_desc or "No desc", st.session_state.m_sal_amount or "N/A", st.session_state.get('m_sal_type', 'Unspecified'), datetime.now().strftime("%Y-%m-%d")))
+                        clear_manual()
+                        st.session_state['inject_msg'] = "success"
+                    else: st.session_state['inject_msg'] = "error"
 
-                if st.session_state['inject_status'] == "success":
-                    st.success("Injection Successful! Form reset for next entry.")
-                    st.session_state['inject_status'] = None
-                elif st.session_state['inject_status'] == "error":
+                if st.session_state.get('inject_msg') == "success":
+                    st.success("Injection Successful! Form reset.")
+                    st.session_state['inject_msg'] = None
+                elif st.session_state.get('inject_msg') == "error":
                     st.error("SYSTEM ERROR: Title, Company, and URL are required.")
                     st.session_state['inject_status'] = None
                 
@@ -446,233 +392,176 @@ else:
                 with c1: st.text_input("Compensation (in USD $)", key="m_sal_amount")
                 with c2: st.selectbox("Cycle", ["Yearly", "Monthly", "Hourly", "Unspecified"], key="m_sal_type")
                 
-                st.text_input("Uplink URL", key="manual_url", on_change=sync_url_to_desc)
+                st.text_input("Uplink URL", key="manual_url", on_change=sync_url)
                 st.text_area("File Contents", key="manual_desc", height=150)
                 
-                col_btn1, col_btn2 = st.columns([4, 1])
-                with col_btn1: st.button("🚀 INJECT NODE", type="primary", use_container_width=True, on_click=inject_node_cb)
-                with col_btn2: st.button("🧹 CLEAR ALL", use_container_width=True, on_click=clear_form_cb)
+                cb1, cb2 = st.columns([4, 1])
+                with cb1: st.button("🚀 INJECT NODE", type="primary", use_container_width=True, on_click=inject_man)
+                with cb2: st.button("🧹 CLEAR ALL", use_container_width=True, on_click=clear_manual)
 
         if tab_ai:
             with tab_ai:
-                st.markdown("#### 🧠 Free Gemini AI Importer: Copy-Paste Any Webpage")
+                st.markdown("#### 🧠 Free Gemini AI Importer")
                 if st.session_state['draft_job'] is None:
-                    raw_messy_text = st.text_area("Paste Messy Webpage Text Here", height=200, placeholder="Pasted raw text from Mercor...")
-                    ai_target_url = st.text_input("Target Apply URL", placeholder="https://work.mercor.com/explore?...")
+                    raw_messy_text = st.text_area("Paste Messy Webpage Text", height=200)
+                    ai_target_url = st.text_input("Target Apply URL")
                     if st.button("🧠 DECIPHER RAW DATA", type="primary", use_container_width=True):
                         if raw_messy_text and ai_target_url:
                             with st.spinner("Gemini 1.5 Flash Deciphering data..."):
                                 try:
                                     model = genai.GenerativeModel("gemini-1.5-flash")
                                     prompt = f"""
-                                    Analyze this raw, messy webpage text copied from a career website:
+                                    Analyze this messy webpage text:
                                     {raw_messy_text[:4000]}
-                                    
-                                    Extract and format the information exactly into a JSON structure. 
-                                    Do NOT include markdown formatting like ```json or ```. Return ONLY raw JSON text.
-                                    {{
-                                        "title": "Clean, professional Job Title",
-                                        "company": "Company Name",
-                                        "location": "Specific city/state or 'Remote'",
-                                        "description": "Write a highly professional, formatted 4-sentence summary of the role, benefits, and requirements.",
-                                        "salary_amount": "Estimate or amount (e.g. 150,000) or 'N/A'",
-                                        "salary_type": "Yearly, Monthly, Hourly, or Unspecified"
-                                    }}
+                                    Extract and format exactly into JSON. Return ONLY raw JSON text:
+                                    {{ "title": "Job Title", "company": "Company", "location": "City or 'Remote'", "description": "4-sentence professional summary.", "salary_amount": "Amount or 'N/A'", "salary_type": "Yearly/Monthly/Hourly/Unspecified" }}
                                     """
                                     response = model.generate_content(prompt)
-                                    ai_output = response.text.strip()
-                                    if ai_output.startswith('```json'): ai_output = ai_output[7:]
-                                    if ai_output.startswith('```'): ai_output = ai_output[3:]
-                                    if ai_output.endswith('```'): ai_output = ai_output[:-3]
-                                    
-                                    parsed_json = json.loads(ai_output.strip())
-                                    parsed_json['url'] = ai_target_url
-                                    st.session_state['draft_job'] = parsed_json
+                                    ai_output = response.text.strip().replace('```json', '').replace('```', '')
+                                    parsed = json.loads(ai_output.strip())
+                                    parsed['url'] = ai_target_url
+                                    st.session_state['draft_job'] = parsed
                                     st.rerun()
-                                except Exception as e: st.error(f"Gemini Decipher failed: Please try again. Error: {e}")
-                        else: st.warning("Please paste the messy webpage text and add the apply URL.")
+                                except Exception as e: st.error(f"Decipher failed: {e}")
+                        else: st.warning("Paste text and URL.")
                 else:
-                    st.warning("⚠️ DRAFT DECIPHERED. Please review, edit, and confirm the job details below before publishing.")
+                    st.warning("⚠️ DRAFT DECIPHERED. Edit and confirm below.")
                     with st.container(border=True):
-                        col_dt1, col_dt2 = st.columns(2)
-                        with col_dt1: d_title = st.text_input("Job Title", value=st.session_state['draft_job'].get('title', ''))
-                        with col_dt2: d_company = st.text_input("Entity / Company", value=st.session_state['draft_job'].get('company', ''))
-                        col_dt3, col_dt4, col_dt5 = st.columns([2, 2, 1])
-                        with col_dt3: d_location = st.text_input("Location", value=st.session_state['draft_job'].get('location', ''))
-                        with col_dt4: d_sal_amount = st.text_input("Compensation", value=st.session_state['draft_job'].get('salary_amount', ''))
-                        with col_dt5:
-                            cycle_options = ["Yearly", "Monthly", "Hourly", "Unspecified"]
-                            default_cycle = st.session_state['draft_job'].get('salary_type', 'Unspecified')
-                            cycle_idx = cycle_options.index(default_cycle) if default_cycle in cycle_options else 3
-                            d_sal_type = st.selectbox("Cycle", cycle_options, index=cycle_idx)
-                            
-                        d_url = st.text_input("Uplink URL", value=st.session_state['draft_job'].get('url', ''))
-                        d_desc = st.text_area("Full Job Description", value=st.session_state['draft_job'].get('description', ''), height=150)
+                        c1, c2 = st.columns(2)
+                        with c1: dt = st.text_input("Title", value=st.session_state['draft_job'].get('title', ''))
+                        with c2: dc = st.text_input("Company", value=st.session_state['draft_job'].get('company', ''))
+                        c3, c4, c5 = st.columns([2, 2, 1])
+                        with c3: dl = st.text_input("Location", value=st.session_state['draft_job'].get('location', ''))
+                        with c4: dsa = st.text_input("Compensation", value=st.session_state['draft_job'].get('salary_amount', ''))
+                        with c5:
+                            opts = ["Yearly", "Monthly", "Hourly", "Unspecified"]
+                            def_opt = st.session_state['draft_job'].get('salary_type', 'Unspecified')
+                            dst = st.selectbox("Cycle", opts, index=opts.index(def_opt) if def_opt in opts else 3)
+                        du = st.text_input("URL", value=st.session_state['draft_job'].get('url', ''))
+                        dd = st.text_area("Description", value=st.session_state['draft_job'].get('description', ''), height=150)
                         
-                        col_btn1, col_btn2 = st.columns(2)
-                        with col_btn1:
-                            if st.button("🚀 CONFIRM & INJECT NODE", type="primary", use_container_width=True):
-                                today_str = datetime.now().strftime("%Y-%m-%d")
-                                job_id = "AI_" + str(uuid.uuid4())[:8]
-                                data = {"id": job_id, "title": d_title, "company": d_company, "location": d_location, "url": d_url, "source": "Gemini AI", "description": d_desc, "salary_amount": d_sal_amount, "salary_type": d_sal_type, "date_added": today_str}
-                                supabase.table('jobs').insert(data).execute()
+                        b1, b2 = st.columns(2)
+                        with b1:
+                            if st.button("🚀 CONFIRM & INJECT", type="primary", use_container_width=True):
+                                execute_query("INSERT INTO jobs (id, title, company, location, url, source, description, salary_amount, salary_type, date_added) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                                              ("AI_"+str(uuid.uuid4())[:8], dt, dc, dl, du, "Gemini AI", dd, dsa, dst, datetime.now().strftime("%Y-%m-%d")))
                                 st.session_state['draft_job'] = None
-                                st.balloons()
-                                st.success("🚀 Node Injected and Live on grid!")
-                                st.rerun()
-                        with col_btn2:
-                            if st.button("❌ CANCEL DRAFT", use_container_width=True):
-                                st.session_state['draft_job'] = None
-                                st.rerun()
+                                st.success("Injected!"); st.rerun()
+                        with b2:
+                            if st.button("❌ CANCEL", use_container_width=True):
+                                st.session_state['draft_job'] = None; st.rerun()
 
         with tab_cand:
             st.markdown("#### Registered Candidate Mainframe")
-            res_cands = supabase.table('user_resumes').select("*").order('date_uploaded', desc=True).execute()
-            df_cands = pd.DataFrame(res_cands.data)
-            
+            df_cands = execute_query("SELECT user_email, skills_text, date_uploaded, resume_data FROM user_resumes ORDER BY date_uploaded DESC", fetch=True)
             if not df_cands.empty:
-                active_resumes = df_cands.dropna(subset=['resume_data']).to_dict('records')
-                if active_resumes:
+                active_resumes = df_cands.dropna(subset=['resume_data'])
+                if not active_resumes.empty:
                     st.markdown("### 📦 Bulk Datapack Extraction")
-                    
-                    zip_buffer = io.BytesIO()
-                    with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
-                        for cand in active_resumes:
-                            email = cand['user_email']
-                            raw_b64 = cand['resume_data']
-                            zip_file.writestr(f"{email.split('@')[0]}_resume.pdf", base64.b64decode(raw_b64))
-                    zip_data = zip_buffer.getvalue()
-
-                    def trigger_bulk_purge_confirmation(): st.session_state['show_bulk_purge'] = True
-                    st.download_button(label=f"💾 DOWNLOAD ALL RESUMES ({len(active_resumes)} FILES .ZIP)", data=zip_data, file_name=f"neural_grid_resumes_{datetime.now().strftime('%Y-%m-%d')}.zip", mime="application/zip", use_container_width=True, on_click=trigger_bulk_purge_confirmation, key="bulk_zip_dl")
+                    zip_data = generate_zip_datapack(active_resumes)
+                    def trig_purge(): st.session_state['show_bulk_purge'] = True
+                    st.download_button(label=f"💾 DOWNLOAD ALL ({len(active_resumes)} .ZIP)", data=zip_data, file_name=f"resumes_{datetime.now().strftime('%Y-%m-%d')}.zip", mime="application/zip", use_container_width=True, on_click=trig_purge)
                     
                     if st.session_state['show_bulk_purge']:
-                        st.write("")
-                        st.warning("⚠️ DECRYPTION COMPLETE. Do you want to purge these raw PDF files from the cloud database now to reclaim storage space?")
-                        col_yes, col_no = st.columns(2)
-                        with col_yes:
-                            if st.button("🚨 YES, PURGE CLOUD STORAGE", type="primary", use_container_width=True):
-                                supabase.table('user_resumes').update({'resume_data': None}).neq('resume_data', 'null').execute()
-                                st.session_state['show_bulk_purge'] = False
-                                st.toast("🧹 Cloud storage successfully purged! Space reclaimed.")
-                                st.rerun()
-                        with col_no:
-                            if st.button("❌ NO, KEEP CLOUD COPIES", use_container_width=True):
-                                st.session_state['show_bulk_purge'] = False
-                                st.rerun()
-                    st.write("---")
+                        st.warning("⚠️ DECRYPTION COMPLETE. Purge raw PDFs to reclaim space?")
+                        cy, cn = st.columns(2)
+                        with cy:
+                            if st.button("🚨 YES, PURGE", type="primary", use_container_width=True):
+                                execute_query("UPDATE user_resumes SET resume_data = NULL WHERE resume_data IS NOT NULL")
+                                st.session_state['show_bulk_purge'] = False; st.rerun()
+                        with cn:
+                            if st.button("❌ NO, KEEP", use_container_width=True):
+                                st.session_state['show_bulk_purge'] = False; st.rerun()
                 
+                st.write("---")
                 st.markdown("### 👤 Candidate Profiles")
                 for _, cand in df_cands.iterrows():
-                    email, skills_text, date_uploaded, resume_data = cand['user_email'], cand['skills_text'], cand['date_uploaded'], cand['resume_data']
                     with st.container(border=True):
-                        col_info, col_dl = st.columns([4, 1])
-                        with col_info:
-                            st.subheader(email)
-                            st.markdown(f"**Detected Tech Stack:** {skills_text}")
-                            st.caption(f"Secure Uplink Date: {date_uploaded}")
-                        with col_dl:
-                            st.write("") 
-                            if resume_data is not None:
-                                decoded_pdf = base64.b64decode(resume_data)
-                                st.download_button(label="DOWNLOAD PDF 💾", data=decoded_pdf, file_name=f"{email.split('@')[0]}_resume.pdf", mime="application/pdf", use_container_width=True, key=f"dl_{email}", on_click=purge_resume_data, args=(email,))
-                            else: st.button("🧹 PURGED / SECURED", key=f"purged_{email}", disabled=True, use_container_width=True)
-            else: st.info("No candidates have uploaded their resumes to the neural grid yet.")
+                        cinfo, cdl = st.columns([4, 1])
+                        with cinfo:
+                            st.subheader(cand['user_email'])
+                            st.markdown(f"**Tech Stack:** {cand['skills_text']}")
+                            st.caption(f"Date: {cand['date_uploaded']}")
+                        with cdl:
+                            if cand['resume_data'] is not None:
+                                def purgesngl(e=cand['user_email']): execute_query("UPDATE user_resumes SET resume_data=NULL WHERE user_email=%s", (e,))
+                                st.download_button(label="💾 PDF", data=bytes(cand['resume_data']), file_name=f"resume.pdf", mime="application/pdf", use_container_width=True, on_click=purgesngl)
+                            else: st.button("🧹 PURGED", disabled=True, use_container_width=True, key=f"p_{cand['user_email']}")
+            else: st.info("No candidates yet.")
 
         with tab2:
-            if df.empty: st.info("Grid empty. Inject new nodes.")
+            if df.empty: st.info("Grid empty.")
             else:
-                df = df.sort_values(by='date_added', ascending=False)
-                for _, row in df.iterrows(): display_job_card(row, is_admin=True)
+                for _, row in df.sort_values(by='date_added', ascending=False).iterrows(): display_job_card(row, is_admin=True)
 
     # --- SEEKER VIEW ---
     elif st.session_state['user_role'] == "seeker":
-        user_email = st.session_state['user_email']
-        thirty_days_ago = pd.to_datetime('today') - timedelta(days=30)
-        df_seeker = df[df['date_added'] >= thirty_days_ago].copy()
+        ue = st.session_state['user_email']
+        thirty_days_str = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
+        df_seeker = df[df['date_added'] >= thirty_days_str].copy()
 
-        res_saved = supabase.table('saved_jobs').select("job_id").eq('user_email', user_email).execute()
-        saved_job_ids = [r['job_id'] for r in res_saved.data] if res_saved.data else []
+        df_saved = execute_query("SELECT job_id FROM saved_jobs WHERE user_email=%s", (ue,), fetch=True)
+        saved_ids = df_saved['job_id'].tolist() if not df_saved.empty else []
 
         tab_browse, tab_saved, tab_match = st.tabs(["[ GRID SEARCH ]", "[ ⭐ SAVED NODES ]", "[ AI OVERRIDE ]"])
         with tab_browse:
-            col_search, col_time = st.columns([3, 1])
-            with col_search: search = st.text_input("QUERY DATABASE...", placeholder="Parameters: Python, OpenAI, Remote...")
-            with col_time: time_filter = st.selectbox("TIME RANGE", ["All Active", "Past 24 Hours", "Past 7 Days"])
+            cs, ct = st.columns([3, 1])
+            with cs: search = st.text_input("QUERY DATABASE...", placeholder="Python, OpenAI...")
+            with ct: t_filter = st.selectbox("TIME RANGE", ["All Active", "Past 24 Hours", "Past 7 Days"])
             st.write("---")
-            if time_filter == "Past 24 Hours": df_seeker = df_seeker[df_seeker['date_added'] >= (pd.to_datetime('today') - timedelta(days=1))]
-            elif time_filter == "Past 7 Days": df_seeker = df_seeker[df_seeker['date_added'] >= (pd.to_datetime('today') - timedelta(days=7))]
+            
+            if time_filter == "Past 24 Hours": 
+                t_str = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+                df_seeker = df_seeker[df_seeker['date_added'] >= t_str]
+            elif time_filter == "Past 7 Days": 
+                t_str = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
+                df_seeker = df_seeker[df_seeker['date_added'] >= t_str]
+                
             if search: df_seeker = df_seeker[df_seeker['title'].str.contains(search, case=False) | df_seeker['company'].str.contains(search, case=False)]
             
-            df_seeker = df_seeker.sort_values(by='date_added', ascending=False)
-            if df_seeker.empty: st.info("No nodes match parameters.")
+            if df_seeker.empty: st.info("No nodes match.")
             else:
-                for _, row in df_seeker.iterrows(): display_job_card(row, is_admin=False, user_email=user_email, is_saved=(row['id'] in saved_job_ids))
+                for _, row in df_seeker.sort_values(by='date_added', ascending=False).iterrows(): display_job_card(row, user_email=ue, is_saved=(row['id'] in saved_ids))
         
         with tab_saved:
-            st.markdown("#### YOUR ENCRYPTED FAVORITES")
-            df_saved = df_seeker[df_seeker['id'].isin(saved_job_ids)]
-            if df_saved.empty: st.info("You have not saved any datanodes yet. Click ⭐ SAVE NODE on the main grid.")
+            ds = df_seeker[df_seeker['id'].isin(saved_ids)]
+            if ds.empty: st.info("No saved datanodes.")
             else:
-                for _, row in df_saved.iterrows(): display_job_card(row, is_admin=False, user_email=user_email, is_saved=True)
+                for _, row in ds.iterrows(): display_job_card(row, user_email=ue, is_saved=True)
 
         with tab_match:
             with st.container(border=True):
-                uploaded_file = st.file_uploader("UPLOAD DATAPACK (PDF)", type="pdf")
-            if uploaded_file:
+                upl = st.file_uploader("UPLOAD DATAPACK (PDF)", type="pdf")
+            if upl:
                 with st.spinner("Running neural analysis..."):
-                    resume_text = extract_text_from_pdf(uploaded_file)
-                    
+                    rt = extract_text_from_pdf(upl)
                     if GEMINI_API_KEY:
                         try:
                             model = genai.GenerativeModel("gemini-1.5-flash")
-                            job_context = ""
-                            for _, r in df_seeker.iterrows(): job_context += f"ID:{r['id']} | Title:{r['title']} | Company:{r['company']} | Desc:{str(r['description'])[:200]}\n"
+                            jc = "".join([f"ID:{r['id']} | Title:{r['title']} | Desc:{str(r['description'])[:150]}\n" for _, r in df_seeker.iterrows()])
+                            prompt = f"Resume:\n{rt[:2500]}\nJobs:\n{jc}\nFind top 3 best matching Job IDs. Return ONLY comma-separated IDs."
+                            resp = model.generate_content(prompt)
+                            m_ids = [i.strip() for i in resp.text.replace('`','').split(',')]
+                            matched = df_seeker[df_seeker['id'].isin(m_ids)]
                             
-                            prompt = f"""
-                            Candidate Resume Text:
-                            {resume_text[:2500]}
+                            sk_prompt = f"Resume:\n{rt[:2000]}\nReturn a clean, comma-separated list of the top 5 technical skills found. Return ONLY the skills."
+                            sk_str = model.generate_content(sk_prompt).text.replace('`','').strip()
                             
-                            Active Jobs List:
-                            {job_context}
-                            
-                            Evaluate the candidate's exact experience level and technical skills. 
-                            Find the top 3 best matching Job IDs from the list.
-                            Return ONLY a comma-separated list of the Job IDs. Do not include any other text or formatting.
-                            """
-                            response = model.generate_content(prompt)
-                            ai_output = response.text.replace('```', '').strip()
-                            
-                            matched_ids = [i.strip() for i in ai_output.split(',')]
-                            matched = df_seeker[df_seeker['id'].isin(matched_ids)]
-                            
-                            today_str = datetime.now().strftime("%Y-%m-%d")
-                            pdf_bytes = uploaded_file.getvalue()
-                            b64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
-                            
-                            skills_prompt = f"Read this resume:\n{resume_text[:2000]}\n\nReturn a clean, comma-separated list of the top 5 technical skills found. Return ONLY the skills, nothing else."
-                            skills_response = model.generate_content(skills_prompt)
-                            skills_str = skills_response.text.replace('```', '').strip()
-                            
-                            data = {'user_email': user_email, 'resume_data': b64_pdf, 'skills_text': skills_str, 'date_uploaded': today_str}
-                            supabase.table('user_resumes').upsert(data).execute()
-                            
-                            st.toast("⚡ Resume secure-uplinked to Neural Databank!")
+                            execute_query("INSERT INTO user_resumes (user_email, resume_data, skills_text, date_uploaded) VALUES (%s, %s, %s, %s) ON CONFLICT (user_email) DO UPDATE SET resume_data = EXCLUDED.resume_data, skills_text = EXCLUDED.skills_text, date_uploaded = EXCLUDED.date_uploaded",
+                                          (ue, psycopg2.Binary(upl.getvalue()), sk_str, datetime.now().strftime("%Y-%m-%d")))
+                            st.toast("⚡ Resume secure-uplinked to Databank!")
                             
                             if not matched.empty:
-                                st.success("🟢 Google Gemini Deep-Neural Analysis Complete.")
-                                st.markdown(f"#### >>> TOP MATCHES ({len(matched)}):")
-                                for _, row in matched.iterrows(): display_job_card(row, is_admin=False, user_email=user_email, is_saved=(row['id'] in saved_job_ids))
-                            else: st.info("Gemini analysis complete. No perfect matches found right now.")
-                            
-                        except Exception as e: st.error(f"Gemini Analysis failed: {e}")
+                                st.success("🟢 AI Analysis Complete.")
+                                for _, row in matched.iterrows(): display_job_card(row, user_email=ue, is_saved=(row['id'] in saved_ids))
+                            else: st.info("No perfect matches found.")
+                        except Exception as e: st.error(f"AI Error: {e}")
                     else:
                         st.warning("⚠️ Gemini API Key not found. Falling back to Keyword Heuristics.")
-                        skills = [s for s in ['python', 'sql', 'react', 'java', 'ai', 'data', 'llm', 'machine learning', 'pytorch', 'prompt engineering'] if s in resume_text]
+                        skills = [s for s in ['python', 'sql', 'react', 'java', 'ai', 'data', 'llm', 'machine learning', 'pytorch', 'prompt engineering'] if s in rt]
                         if skills:
                             matched = df_seeker[df_seeker['title'].str.lower().str.contains('|'.join(skills))]
                             if not matched.empty:
-                                st.markdown(f"#### >>> MATCHES FOUND ({len(matched)}):")
-                                for _, row in matched.head(10).iterrows(): display_job_card(row, is_admin=False, user_email=user_email, is_saved=(row['id'] in saved_job_ids))
-                            else: st.info("No matching active nodes currently active.")
-                        else: st.warning("Analysis failed. No valid parameters detected.")
+                                for _, row in matched.head(10).iterrows(): display_job_card(row, user_email=ue, is_saved=(row['id'] in saved_ids))
+                            else: st.info("No matching nodes.")
+                        else: st.warning("Analysis failed.")
