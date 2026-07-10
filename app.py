@@ -6,6 +6,10 @@ import pandas as pd
 import PyPDF2
 import uuid
 import json
+import zipfile
+import io
+from bs4 import BeautifulSoup
+import feedparser
 from datetime import datetime, timedelta
 
 try:
@@ -143,7 +147,6 @@ def purge_resume_data(email):
 
 def generate_zip_datapack(active_resumes):
     zip_buffer = io.BytesIO()
-    import zipfile
     with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
         for email, data in active_resumes:
             file_name = f"{email.split('@')[0]}_resume.pdf"
@@ -213,6 +216,7 @@ if 'user_email' not in st.session_state: st.session_state['user_email'] = ""
 if 'show_bulk_purge' not in st.session_state: st.session_state['show_bulk_purge'] = False
 if 'draft_job' not in st.session_state: st.session_state['draft_job'] = None
 
+# Process Google Login First
 if not st.session_state['logged_in'] and 'code' in st.query_params:
     with st.spinner("Decrypting neural pathways..."):
         code = st.query_params['code']
@@ -228,6 +232,7 @@ if not st.session_state['logged_in'] and 'code' in st.query_params:
 
 is_maint, res_time, maint_msg, is_warn, warn_msg = get_sys_status()
 
+# 🛑 MAINTENANCE LOCKOUT LOGIC 🛑
 if is_maint == 1 and st.session_state['user_role'] != "admin":
     if st.session_state['logged_in']:
         col1, col2, col3 = st.columns([1, 2, 1])
@@ -266,6 +271,7 @@ if is_maint == 1 and st.session_state['user_role'] != "admin":
             """, unsafe_allow_html=True)
         st.stop() 
 
+# --- NORMAL LOGIN SCREEN ---
 if not st.session_state['logged_in']:
     auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}&scope=openid%20email%20profile"
     col1, col2, col3 = st.columns([1, 2, 1])
@@ -383,7 +389,6 @@ else:
                 with c2: m_sal_type = st.selectbox("Cycle", ["Yearly", "Monthly", "Hourly", "Unspecified"])
                 m_url = st.text_input("Uplink URL")
                 m_desc = st.text_area("File Contents")
-                
                 if st.button("INJECT NODE", type="primary", use_container_width=True):
                     if m_title and m_company and m_url:
                         conn = psycopg2.connect(DB_URL)
@@ -397,7 +402,7 @@ else:
                         st.rerun()
                     else: st.error("SYSTEM ERROR: Title, Company, and URL are required.")
 
-        # 🧠 FREE GEMINI AI MAGIC BOX IMPORTER TAB (ADMIN ONLY) - BULLETPROOF PRO VERSION
+        # 🧠 FREE GEMINI AI MAGIC BOX IMPORTER TAB (ADMIN ONLY) - GEMINI 1.5 FLASH FORCED
         if tab_ai:
             with tab_ai:
                 st.markdown("#### 🧠 Free Gemini AI Importer: Copy-Paste Any Webpage")
@@ -409,10 +414,10 @@ else:
                     
                     if st.button("🧠 DECIPHER RAW DATA", type="primary", use_container_width=True):
                         if raw_messy_text and ai_target_url:
-                            with st.spinner("Gemini Pro Deciphering data..."):
+                            with st.spinner("Gemini 1.5 Flash Deciphering data..."):
                                 try:
-                                    # Using the universally stable 'gemini-pro' model
-                                    model = genai.GenerativeModel("gemini-pro")
+                                    # Force the new Gemini 1.5 API
+                                    model = genai.GenerativeModel("gemini-1.5-flash")
                                     prompt = f"""
                                     Analyze this raw, messy webpage text copied from a career website:
                                     {raw_messy_text[:4000]}
@@ -597,8 +602,8 @@ else:
                     
                     if GEMINI_API_KEY:
                         try:
-                            # Using bulletproof gemini-pro for parsing
-                            model = genai.GenerativeModel("gemini-pro")
+                            # Force the new Gemini 1.5 API
+                            model = genai.GenerativeModel("gemini-1.5-flash")
                             job_context = ""
                             for _, r in df_seeker.iterrows(): job_context += f"ID:{r['id']} | Title:{r['title']} | Company:{r['company']} | Desc:{str(r['description'])[:200]}\n"
                             
