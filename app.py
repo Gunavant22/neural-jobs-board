@@ -2,10 +2,8 @@ import streamlit as st
 import requests
 import os
 import pandas as pd
-import PyPDF2
 import uuid
 import json
-import zipfile
 import io
 import urllib.parse
 import ssl
@@ -175,18 +173,6 @@ def get_sys_status():
         return (is_maint, res_time, msg, is_warn, warn_msg)
     return (0, "", "", 0, "")
 
-def generate_zip_datapack(active_resumes):
-    zip_buffer = io.BytesIO()
-    with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
-        for index, cand in active_resumes.iterrows():
-            if cand['resume_data'] is not None:
-                zip_file.writestr(f"{cand['user_email'].split('@')[0]}_resume.pdf", bytes(cand['resume_data']))
-    return zip_buffer.getvalue()
-
-def extract_text_from_pdf(uploaded_file):
-    try: return "".join([page.extract_text() + " " for page in PyPDF2.PdfReader(uploaded_file).pages]).lower()
-    except: return ""
-
 def format_salary(salary_amount, salary_type):
     sal_val = str(salary_amount).strip()
     if not sal_val or sal_val.lower() in ["n/a", ""]:
@@ -195,7 +181,7 @@ def format_salary(salary_amount, salary_type):
         sal_val = f"${sal_val}"
     return f"{sal_val} / {salary_type}"
 
-def display_job_card(row, is_admin=False, user_email=None, is_saved=False, is_teaser=False):
+def display_job_card(row, is_admin=False, user_email=None, is_teaser=False):
     is_expired = is_admin and pd.to_datetime(row['date_added']) < (pd.to_datetime('today') - timedelta(days=30))
     sal = format_salary(row['salary_amount'], row['salary_type'])
     date_str = str(row['date_added'])[:10]
@@ -227,15 +213,6 @@ def display_job_card(row, is_admin=False, user_email=None, is_saved=False, is_te
         with col_action:
             st.write("")
             st.link_button("INITIATE UPLINK", row['url'], use_container_width=True, type="primary")
-            if not is_admin and user_email:
-                if is_saved:
-                    if st.button("❌ REMOVE", key=f"unsave_{row['id']}", use_container_width=True):
-                        execute_query("DELETE FROM saved_jobs WHERE user_email=%s AND job_id=%s", (user_email, row['id']))
-                        st.rerun()
-                else:
-                    if st.button("⭐ SAVE NODE", key=f"save_{row['id']}", use_container_width=True):
-                        execute_query("INSERT INTO saved_jobs (user_email, job_id) VALUES (%s, %s) ON CONFLICT DO NOTHING", (user_email, row['id']))
-                        st.rerun()
 
         with st.expander("DECRYPT DATAFILE (View Description)"):
             st.write(row['description'])
@@ -394,7 +371,7 @@ else:
             
         st.write("---")
 
-        tab1, tab2, tab_cand, tab_analytics, tab3 = st.tabs(["[ ➕ INJECT ]", "[ 📋 NODES ]", "[ 📄 CANDIDATES ]", "[ 📈 ANALYTICS ]", "[ ⚙️ SYS ]"])
+        tab1, tab2, tab_analytics, tab3 = st.tabs(["[ ➕ INJECT ]", "[ 📋 NODES ]", "[ 📈 ANALYTICS ]", "[ ⚙️ SYS ]"])
             
         with tab_analytics:
             st.markdown("#### Real-Time User Telemetry")
@@ -486,44 +463,6 @@ else:
                 with cb1: st.button("🚀 INJECT NODE", type="primary", use_container_width=True, on_click=inject_man)
                 with cb2: st.button("🧹 CLEAR ALL", use_container_width=True, on_click=clear_manual)
 
-        with tab_cand:
-            st.markdown("#### Registered Candidate Mainframe")
-            df_cands = execute_query("SELECT user_email, skills_text, date_uploaded, resume_data FROM user_resumes ORDER BY date_uploaded DESC", fetch=True)
-            if not df_cands.empty:
-                active_resumes = df_cands.dropna(subset=['resume_data'])
-                if not active_resumes.empty:
-                    st.markdown("### 📦 Bulk Datapack Extraction")
-                    zip_data = generate_zip_datapack(active_resumes)
-                    def trig_purge(): st.session_state['show_bulk_purge'] = True
-                    st.download_button(label=f"💾 DOWNLOAD ALL ({len(active_resumes)} .ZIP)", data=zip_data, file_name=f"resumes_{datetime.now().strftime('%Y-%m-%d')}.zip", mime="application/zip", use_container_width=True, on_click=trig_purge)
-                    
-                    if st.session_state['show_bulk_purge']:
-                        st.warning("⚠️ DECRYPTION COMPLETE. Purge raw PDFs to reclaim space?")
-                        cy, cn = st.columns(2)
-                        with cy:
-                            if st.button("🚨 YES, PURGE", type="primary", use_container_width=True):
-                                execute_query("UPDATE user_resumes SET resume_data = NULL WHERE resume_data IS NOT NULL")
-                                st.session_state['show_bulk_purge'] = False; st.rerun()
-                        with cn:
-                            if st.button("❌ NO, KEEP", use_container_width=True):
-                                st.session_state['show_bulk_purge'] = False; st.rerun()
-                
-                st.write("---")
-                st.markdown("### 👤 Candidate Profiles")
-                for _, cand in df_cands.iterrows():
-                    with st.container(border=True):
-                        cinfo, cdl = st.columns([4, 1])
-                        with cinfo:
-                            st.subheader(cand['user_email'])
-                            st.markdown(f"**Tech Stack:** {cand['skills_text']}")
-                            st.caption(f"Date: {cand['date_uploaded']}")
-                        with cdl:
-                            if cand['resume_data'] is not None:
-                                def purgesngl(e=cand['user_email']): execute_query("UPDATE user_resumes SET resume_data=NULL WHERE user_email=%s", (e,))
-                                st.download_button(label="💾 PDF", data=bytes(cand['resume_data']), file_name=f"resume.pdf", mime="application/pdf", use_container_width=True, on_click=purgesngl)
-                            else: st.button("🧹 PURGED", disabled=True, use_container_width=True, key=f"p_{cand['user_email']}")
-            else: st.info("No candidates yet.")
-
         with tab2:
             # Query-Optimized Admin List: Show latest 100 job nodes
             df_admin_jobs = execute_query("SELECT * FROM jobs ORDER BY date_added DESC LIMIT 100", fetch=True)
@@ -539,69 +478,22 @@ else:
         thirty_days_str = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
         df_seeker = execute_query("SELECT * FROM jobs WHERE date_added >= %s", (thirty_days_str,), fetch=True)
 
-        df_saved = execute_query("SELECT job_id FROM saved_jobs WHERE user_email=%s", (ue,), fetch=True)
-        saved_ids = df_saved['job_id'].tolist() if not df_saved.empty else []
-
-        tab_browse, tab_saved, tab_match = st.tabs(["[ GRID SEARCH ]", "[ ⭐ SAVED NODES ]", "[ AI OVERRIDE ]"])
-        with tab_browse:
-            cs, ct = st.columns([3, 1])
-            with cs: search = st.text_input("QUERY DATABASE...", placeholder="Python, OpenAI...")
-            with ct: t_filter = st.selectbox("TIME RANGE", ["All Active", "Past 24 Hours", "Past 7 Days"])
-            st.write("---")
-            
-            # FIXED: Variable updated from time_filter -> t_filter to correct Seeker tab crash
-            if t_filter == "Past 24 Hours": 
-                t_str = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
-                df_seeker = df_seeker[df_seeker['date_added'] >= t_str]
-            elif t_filter == "Past 7 Days": 
-                t_str = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
-                df_seeker = df_seeker[df_seeker['date_added'] >= t_str]
-                
-            if search: df_seeker = df_seeker[df_seeker['title'].str.contains(search, case=False) | df_seeker['company'].str.contains(search, case=False)]
-            
-            if df_seeker.empty: st.info("No nodes match.")
-            else:
-                for _, row in df_seeker.sort_values(by='date_added', ascending=False).iterrows(): display_job_card(row, user_email=ue, is_saved=(row['id'] in saved_ids))
+        st.markdown("### [ GRID SEARCH ]")
+        cs, ct = st.columns([3, 1])
+        with cs: search = st.text_input("QUERY DATABASE...", placeholder="Python, OpenAI...")
+        with ct: t_filter = st.selectbox("TIME RANGE", ["All Active", "Past 24 Hours", "Past 7 Days"])
+        st.write("---")
         
-        with tab_saved:
-            ds = df_seeker[df_seeker['id'].isin(saved_ids)]
-            if ds.empty: st.info("No saved datanodes.")
-            else:
-                for _, row in ds.iterrows(): display_job_card(row, user_email=ue, is_saved=True)
-
-        with tab_match:
-            with st.container(border=True):
-                upl = st.file_uploader("UPLOAD DATAPACK (PDF)", type="pdf")
-            if upl:
-                with st.spinner("Running neural analysis..."):
-                    rt = extract_text_from_pdf(upl)
-                    
-                    # 100% Client-Side Heuristic Keyword Matcher (Zero API calls/Zero latency)
-                    skills_pool = [
-                        'python', 'sql', 'react', 'java', 'ai', 'data', 'llm', 'machine learning', 
-                        'pytorch', 'prompt engineering', 'typescript', 'javascript', 'c++', 'rust', 
-                        'aws', 'docker', 'kubernetes', 'tensorflow', 'nlp'
-                    ]
-                    detected_skills = [s for s in skills_pool if s in rt]
-                    skills_str = ", ".join(detected_skills).upper() if detected_skills else "GENERAL OPERATIVE"
-                    
-                    # Store resume datacard safely inside DB
-                    execute_query("INSERT INTO user_resumes (user_email, resume_data, skills_text, date_uploaded) VALUES (%s, %s, %s, %s) ON CONFLICT (user_email) DO UPDATE SET resume_data = EXCLUDED.resume_data, skills_text = EXCLUDED.skills_text, date_uploaded = EXCLUDED.date_uploaded",
-                                  (ue, upl.getvalue(), skills_str, datetime.now().strftime("%Y-%m-%d")))
-                    st.toast("⚡ Resume secure-uplinked to Databank!")
-                    
-                    if detected_skills:
-                        # Scan database for jobs containing candidate keywords
-                        pattern = '|'.join([rf"\b{s}\b" for s in detected_skills])
-                        matched = df_seeker[
-                            df_seeker['title'].str.lower().str.contains(pattern, na=False) | 
-                            df_seeker['description'].str.lower().str.contains(pattern, na=False)
-                        ]
-                        if not matched.empty:
-                            st.success(f"🟢 Search Engine Complete. Found {len(matched)} matched job records.")
-                            for _, row in matched.head(10).iterrows(): 
-                                display_job_card(row, user_email=ue, is_saved=(row['id'] in saved_ids))
-                        else:
-                            st.info("No direct active matches currently on the grid. Check back later.")
-                    else:
-                        st.warning("No technical profile indicators identified in the document.")
+        if t_filter == "Past 24 Hours": 
+            t_str = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+            df_seeker = df_seeker[df_seeker['date_added'] >= t_str]
+        elif t_filter == "Past 7 Days": 
+            t_str = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
+            df_seeker = df_seeker[df_seeker['date_added'] >= t_str]
+            
+        if search: df_seeker = df_seeker[df_seeker['title'].str.contains(search, case=False) | df_seeker['company'].str.contains(search, case=False)]
+        
+        if df_seeker.empty: st.info("No nodes match.")
+        else:
+            for _, row in df_seeker.sort_values(by='date_added', ascending=False).iterrows(): 
+                display_job_card(row, user_email=ue)
