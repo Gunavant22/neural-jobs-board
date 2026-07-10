@@ -5,8 +5,6 @@ import pandas as pd
 import PyPDF2
 import uuid
 import json
-import zipfile
-import io
 from datetime import datetime, timedelta
 
 try:
@@ -70,12 +68,14 @@ def apply_futuristic_css():
 apply_futuristic_css()
 
 # ==========================================
-# 3. DATABASE SETUP (Supabase Postgres)
+# 3. DATABASE SETUP
 # ==========================================
+USER_HOME = os.path.expanduser("~") 
+DB_PATH = os.path.join(USER_HOME, 'ai_jobs_production.db')
+
 def init_db():
     conn = psycopg2.connect(DB_URL)
     c = conn.cursor()
-    # Create tables directly in Supabase (Postgres syntax)
     c.execute('''
         CREATE TABLE IF NOT EXISTS jobs (
             id TEXT PRIMARY KEY, title TEXT, company TEXT, location TEXT, 
@@ -144,6 +144,7 @@ def purge_resume_data(email):
         st.error(f"Purge failed: {e}")
 
 def generate_zip_datapack(active_resumes):
+    import zipfile, io
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
         for email, data in active_resumes:
@@ -183,7 +184,6 @@ def display_job_card(row, is_admin=False, user_email=None, is_saved=False):
             st.write("")
             st.link_button("INITIATE UPLINK", row['url'], use_container_width=True, type="primary")
             
-            # --- SAVE TO FAVORITES BUTTON ---
             if not is_admin and user_email:
                 if is_saved:
                     if st.button("❌ REMOVE", key=f"unsave_{row['id']}", use_container_width=True):
@@ -213,6 +213,8 @@ if 'user_role' not in st.session_state: st.session_state['user_role'] = None
 if 'user_name' not in st.session_state: st.session_state['user_name'] = ""
 if 'user_email' not in st.session_state: st.session_state['user_email'] = "" 
 if 'show_bulk_purge' not in st.session_state: st.session_state['show_bulk_purge'] = False
+# Tracking the dynamic AI Draft
+if 'draft_job' not in st.session_state: st.session_state['draft_job'] = None
 
 # Process Google Login First
 if not st.session_state['logged_in'] and 'code' in st.query_params:
@@ -260,7 +262,9 @@ if is_maint == 1 and st.session_state['user_role'] != "admin":
                     <div class="app-title-large app-title-maintenance">NEURAL</div>
                     <div class="app-title-large app-title-maintenance" style="font-size: 2.5rem; margin-bottom: 20px;">// LOCKED</div>
                     <p style="color: #8892b0; font-size: 1.1rem; line-height: 1.5; margin-bottom: 10px;">{maint_msg}</p>
-                    <p style="color: #ff4757; font-family: 'Share Tech Mono', monospace; font-size: 1.2rem; margin-bottom: 30px;">EXPECTED UPLINK RESTORED: <br> {res_time}</p>
+                    <p style="color: #ff4757; font-family: 'Share Tech Mono', monospace; font-size: 1.2rem; margin-bottom: 30px;">
+                        EXPECTED UPLINK RESTORED: <br> {res_time}
+                    </p>
                     <a href="{auth_url}" class="cyber-btn admin-bypass-btn" target="_blank">STAFF LOGIN</a>
                 </div>
             </div>
@@ -325,7 +329,7 @@ else:
             
         st.write("---")
 
-        # 🧠 DYNAMIC TAB LOADING: Only shows Gemini Importer if API Key is set!
+        # 🧠 DYNAMIC TAB LOADING
         if GEMINI_API_KEY:
             tab1, tab_ai, tab2, tab_cand, tab3 = st.tabs(["[ ➕ INJECT DATA ]", "[ 🧠 AI IMPORTER ]", "[ 📋 NODE LIST ]", "[ 📄 CANDIDATES ]", "[ ⚙️ SYS CONTROLS ]"])
         else:
@@ -409,43 +413,90 @@ else:
                     else:
                         st.error("SYSTEM ERROR: Title, Company, and URL are required.")
 
-        # 🧠 FREE GEMINI AI MAGIC BOX IMPORTER TAB (ADMIN ONLY)
+        # 🧠 FREE GEMINI AI MAGIC BOX IMPORTER TAB (ADMIN ONLY) - WITH 2-STEP EDIT CONFIRMATION!
         if tab_ai:
             with tab_ai:
                 st.markdown("#### 🧠 Free Gemini AI Importer: Copy-Paste Any Webpage")
-                st.write("Go to Mercor, LinkedIn, or any job board. Copy the entire page (Ctrl+A -> Ctrl+C). Paste the raw text below, paste the link, and click **Decipher**.")
                 
-                raw_messy_text = st.text_area("Paste Messy Webpage Text Here", height=200, placeholder="Pasted raw text from Mercor...")
-                ai_target_url = st.text_input("Target Apply URL", placeholder="https://work.mercor.com/explore?...")
+                # STEP 1: If there is no draft yet, show the raw paste text area
+                if st.session_state['draft_job'] is None:
+                    st.write("Go to Mercor, LinkedIn, or any job board. Copy the entire page (Ctrl+A -> Ctrl+C). Paste the raw text below, paste the link, and click **Decipher**.")
+                    
+                    raw_messy_text = st.text_area("Paste Messy Webpage Text Here", height=200, placeholder="Pasted raw text from Mercor...")
+                    ai_target_url = st.text_input("Target Apply URL", placeholder="https://work.mercor.com/explore?...")
+                    
+                    if st.button("🧠 DECIPHER RAW DATA", type="primary", use_container_width=True):
+                        if raw_messy_text and ai_target_url:
+                            with st.spinner("Gemini AI Deciphering and formatting data..."):
+                                try:
+                                    # Fallback system: Try Gemini 1.5 Flash first, if it fails, fallback to Gemini Pro!
+                                    try:
+                                        model = genai.GenerativeModel("gemini-1.5-flash")
+                                    except:
+                                        model = genai.GenerativeModel("gemini-pro")
+                                        
+                                    prompt = f"""
+                                    Analyze this raw, messy webpage text copied from a career website:
+                                    {raw_messy_text[:4000]}
+                                    
+                                    Extract and format the information exactly into this JSON structure (Return ONLY raw valid JSON):
+                                    {{
+                                        "title": "Clean, professional Job Title",
+                                        "company": "Company Name",
+                                        "location": "Specific city/state or 'Remote'",
+                                        "description": "Write a highly professional, formatted 4-sentence summary of the role, benefits, and requirements.",
+                                        "salary_amount": "Estimate or amount (e.g. 150,000) or 'N/A'",
+                                        "salary_type": "Yearly, Monthly, Hourly, or Unspecified"
+                                    }}
+                                    """
+                                    response = model.generate_content(
+                                        prompt,
+                                        generation_config={"response_mime_type": "application/json"}
+                                    )
+                                    
+                                    # Parse Gemini's JSON Output and save to Draft State
+                                    parsed_json = json.loads(response.text)
+                                    parsed_json['url'] = ai_target_url # add url to draft
+                                    
+                                    st.session_state['draft_job'] = parsed_json
+                                    st.rerun()
+                                    
+                                except Exception as e:
+                                    st.error(f"Gemini Decipher failed: {e}")
+                        else:
+                            st.warning("Please paste the messy webpage text and add the apply URL.")
                 
-                if st.button("🧠 DECIPHER & INJECT NODE", type="primary", use_container_width=True):
-                    if raw_messy_text and ai_target_url:
-                        with st.spinner("Gemini AI Deciphering and formatting data..."):
-                            try:
-                                model = genai.GenerativeModel("gemini-1.5-flash")
-                                prompt = f"""
-                                Analyze this raw, messy webpage text copied from a career website:
-                                {raw_messy_text[:4000]}
-                                
-                                Extract and format the information exactly into this JSON structure (Return ONLY raw valid JSON):
-                                {{
-                                    "title": "Clean, professional Job Title",
-                                    "company": "Company Name",
-                                    "location": "Specific city/state or 'Remote'",
-                                    "description": "Write a highly professional, formatted 4-sentence summary of the role, benefits, and requirements.",
-                                    "salary_amount": "Estimate or amount (e.g. 150,000) or 'N/A'",
-                                    "salary_type": "Yearly, Monthly, Hourly, or Unspecified"
-                                }}
-                                """
-                                response = model.generate_content(
-                                    prompt,
-                                    generation_config={"response_mime_type": "application/json"}
-                                )
-                                
-                                # Parse Gemini's JSON Output
-                                parsed_json = json.loads(response.text)
-                                
-                                # Save to Supabase Cloud Database!
+                # STEP 2: The Draft Review Panel (Let the Admin edit before posting!)
+                else:
+                    st.write("")
+                    st.warning("⚠️ DRAFT DECIPHERED. Please review, edit, and confirm the job details below before publishing to the live grid.")
+                    
+                    with st.container(border=True):
+                        col_dt1, col_dt2 = st.columns(2)
+                        with col_dt1:
+                            d_title = st.text_input("Job Title", value=st.session_state['draft_job'].get('title', ''))
+                        with col_dt2:
+                            d_company = st.text_input("Entity / Company", value=st.session_state['draft_job'].get('company', ''))
+                            
+                        col_dt3, col_dt4, col_dt5 = st.columns([2, 2, 1])
+                        with col_dt3:
+                            d_location = st.text_input("Location", value=st.session_state['draft_job'].get('location', ''))
+                        with col_dt4:
+                            d_sal_amount = st.text_input("Compensation", value=st.session_state['draft_job'].get('salary_amount', ''))
+                        with col_dt5:
+                            # Pre-calculate selectbox index
+                            cycle_options = ["Yearly", "Monthly", "Hourly", "Unspecified"]
+                            default_cycle = st.session_state['draft_job'].get('salary_type', 'Unspecified')
+                            cycle_idx = cycle_options.index(default_cycle) if default_cycle in cycle_options else 3
+                            d_sal_type = st.selectbox("Cycle", cycle_options, index=cycle_idx)
+                            
+                        d_url = st.text_input("Uplink URL", value=st.session_state['draft_job'].get('url', ''))
+                        d_desc = st.text_area("Full Job Description", value=st.session_state['draft_job'].get('description', ''), height=150)
+                        
+                        # Save or cancel buttons
+                        col_btn1, col_btn2 = st.columns(2)
+                        with col_btn1:
+                            if st.button("🚀 CONFIRM & INJECT NODE", type="primary", use_container_width=True):
                                 conn = psycopg2.connect(DB_URL)
                                 c = conn.cursor()
                                 today_str = datetime.now().strftime("%Y-%m-%d")
@@ -454,20 +505,20 @@ else:
                                 c.execute("""
                                     INSERT INTO jobs (id, title, company, location, url, source, description, salary_amount, salary_type, date_added)
                                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                                """, (job_id, parsed_json['title'], parsed_json['company'], parsed_json['location'], ai_target_url, "Gemini AI", parsed_json['description'], parsed_json['salary_amount'], parsed_json['salary_type'], today_str))
+                                """, (job_id, d_title, d_company, d_location, d_url, "Gemini AI", d_desc, d_sal_amount, d_sal_type, today_str))
                                 conn.commit()
                                 conn.close()
                                 
+                                st.session_state['draft_job'] = None # Clear draft
                                 st.balloons()
-                                st.success(f"🚀 Gemini AI Successfully Deciphered and Injected: **{parsed_json['title']}** at **{parsed_json['company']}**!")
+                                st.success("🚀 Node Injected and Live on grid!")
                                 st.rerun()
-                                
-                            except Exception as e:
-                                st.error(f"Gemini Decipher failed: {e}")
-                    else:
-                        st.warning("Please paste the messy webpage text and add the apply URL.")
+                        with col_btn2:
+                            if st.button("❌ CANCEL DRAFT", use_container_width=True):
+                                st.session_state['draft_job'] = None # Wipe draft
+                                st.rerun()
 
-        # 📄 CANDIDATES MANAGEMENT TAB (WITH BULK ZIP & AUTO-CONFIRM OVERRIDE)
+        # 📄 CANDIDATES MANAGEMENT TAB
         with tab_cand:
             st.markdown("#### Registered Candidate Mainframe")
             st.write("Browse candidates. Download raw resumes individually or compress them into a bulk ZIP package.")
@@ -605,10 +656,14 @@ else:
                 with st.spinner("Running neural analysis..."):
                     resume_text = extract_text_from_pdf(uploaded_file)
                     
-                    # --- NEW: GEMINI-POWERED DEEP RESUME SCAN ---
+                    # --- GEMINI-POWERED DEEP RESUME SCAN ---
                     if GEMINI_API_KEY:
                         try:
-                            model = genai.GenerativeModel("gemini-1.5-flash")
+                            # Dual model fallback (tries Flash, falls back to Pro on older API environments)
+                            try:
+                                model = genai.GenerativeModel("gemini-1.5-flash")
+                            except:
+                                model = genai.GenerativeModel("gemini-pro")
                             
                             # Compile active jobs for Gemini to read
                             job_context = ""
@@ -629,7 +684,7 @@ else:
                             response = model.generate_content(prompt)
                             ai_output = response.text
                             
-                            # Parse Gemini's plain text comma list (e.g. "MAN_123, WWR_456")
+                            # Parse Gemini's plain text comma list
                             matched_ids = [i.strip() for i in ai_output.replace('"', '').replace("'", "").split(',')]
                             matched = df_seeker[df_seeker['id'].isin(matched_ids)]
                             
@@ -639,7 +694,7 @@ else:
                             today_str = datetime.now().strftime("%Y-%m-%d")
                             pdf_bytes = uploaded_file.getvalue()
                             
-                            # We quickly extract 5 core skills using Gemini to list on the Admin panel
+                            # Extract top 5 skills using Gemini
                             skills_prompt = f"Read this resume:\n{resume_text[:2000]}\n\nReturn a clean, comma-separated list of the top 5 technical skills found. Return ONLY the skills, nothing else."
                             skills_response = model.generate_content(skills_prompt)
                             skills_str = skills_response.text.strip()
