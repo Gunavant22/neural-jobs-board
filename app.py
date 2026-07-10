@@ -16,8 +16,8 @@ from bs4 import BeautifulSoup
 import feedparser
 from datetime import datetime, timedelta
 
-# Pure-Python PostgreSQL Driver (100% immune to Python 3.14 Segfaults)
-import psycopg
+# Pure-Python Direct Socket Postgres Driver (Zero C-deps, no libpq needed)
+import pg8000.dbapi
 
 # ==========================================
 # 1. PRODUCTION CONFIGURATION & SECRETS
@@ -27,27 +27,6 @@ CLIENT_SECRET = st.secrets["CLIENT_SECRET"]
 REDIRECT_URI = st.secrets["REDIRECT_URI"]
 ADMIN_EMAILS = [st.secrets["ADMIN_EMAIL"]]
 DB_CONN_STR = st.secrets["DB_CONNECTION_STRING"]
-GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", "")
-
-# Pure-Python REST Caller for Gemini (Bypasses crash-prone gRPC/google-generativeai SDK)
-def call_gemini_api(prompt, api_key):
-    if not api_key:
-        raise Exception("Gemini API key is missing.")
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
-    headers = {"Content-Type": "application/json"}
-    payload = {
-        "contents": [
-            {"parts": [{"text": prompt}]}
-        ]
-    }
-    response = requests.post(url, headers=headers, json=payload)
-    if response.status_code == 200:
-        try:
-            return response.json()["candidates"][0]["content"]["parts"][0]["text"]
-        except (KeyError, IndexError):
-            raise Exception("Failed to parse response from Gemini.")
-    else:
-        raise Exception(f"Gemini API Error {response.status_code}: {response.text}")
 
 # ==========================================
 # 2. STATELESS OAUTH CSRF ENGINE
@@ -132,16 +111,28 @@ def apply_futuristic_css():
 apply_futuristic_css()
 
 # ==========================================
-# 4. PURE PYTHON DATABASE HANDLER (psycopg)
+# 4. SECURE WIRE-PROTOCOL DATABASE HANDLER
 # ==========================================
 def execute_query(query, params=None, fetch=False):
-    """🛠️ CRASH-PROOF DB HANDLER: Uses pure-Python psycopg 3 context managers to avoid Segfaults."""
+    """🛠️ CRASH-PROOF DB HANDLER: Direct socket communication in pure Python. Zero C-libraries needed."""
     try:
-        conn = psycopg.connect(DB_CONN_STR)
+        url = urllib.parse.urlparse(DB_CONN_STR)
+        ssl_ctx = ssl.create_default_context()
+        ssl_ctx.check_hostname = False
+        ssl_ctx.verify_mode = ssl.CERT_NONE
+        
+        # Connect using pure-Python pg8000
+        conn = pg8000.dbapi.connect(
+            user=url.username,
+            password=url.password,
+            host=url.hostname,
+            port=url.port,
+            database=url.path[1:], 
+            ssl_context=ssl_ctx
+        )
         c = conn.cursor()
         
         if params:
-            # Safely handle potential binary parameters without requiring extra wrappers
             safe_params = tuple(bytes(p) if isinstance(p, (bytes, memoryview)) else p for p in params)
             c.execute(query, safe_params)
         else:
@@ -403,10 +394,7 @@ else:
             
         st.write("---")
 
-        if GEMINI_API_KEY: tab1, tab_ai, tab2, tab_cand, tab_analytics, tab3 = st.tabs(["[ ➕ INJECT ]", "[ 🧠 AI IMPORT ]", "[ 📋 NODES ]", "[ 📄 CANDIDATES ]", "[ 📈 ANALYTICS ]", "[ ⚙️ SYS ]"])
-        else:
-            tab1, tab2, tab_cand, tab_analytics, tab3 = st.tabs(["[ ➕ INJECT ]", "[ 📋 NODES ]", "[ 📄 CANDIDATES ]", "[ 📈 ANALYTICS ]", "[ ⚙️ SYS ]"])
-            tab_ai = None
+        tab1, tab2, tab_cand, tab_analytics, tab3 = st.tabs(["[ ➕ INJECT ]", "[ 📋 NODES ]", "[ 📄 CANDIDATES ]", "[ 📈 ANALYTICS ]", "[ ⚙️ SYS ]"])
             
         with tab_analytics:
             st.markdown("#### Real-Time User Telemetry")
@@ -498,77 +486,6 @@ else:
                 with cb1: st.button("🚀 INJECT NODE", type="primary", use_container_width=True, on_click=inject_man)
                 with cb2: st.button("🧹 CLEAR ALL", use_container_width=True, on_click=clear_manual)
 
-        # 🧠 AUTO-URL IMPORTER (Bypasses bot blocks via Jina AI)
-        if tab_ai:
-            with tab_ai:
-                st.markdown("#### 🧠 Auto-URL Importer (Gemini AI)")
-                if st.session_state['draft_job'] is None:
-                    st.write("Paste the job URL below. The system will automatically bypass bot-protections, read the page, and decipher the job details.")
-                    ai_target_url = st.text_input("Target Apply URL", placeholder="https://work.mercor.com/explore?...")
-                    raw_messy_text = st.text_area("Fallback: Paste raw text here ONLY if the URL fetch fails", height=100)
-                    
-                    if st.button("🧠 FETCH & DECIPHER", type="primary", use_container_width=True):
-                        if ai_target_url or raw_messy_text:
-                            with st.spinner("Initiating sequence..."):
-                                text_to_analyze = raw_messy_text
-                                
-                                # Fetch from URL if text box is empty
-                                if not text_to_analyze and ai_target_url:
-                                    st.toast("🌐 Fetching URL via Jina AI Reader...")
-                                    try:
-                                        res = requests.get(f"https://r.jina.ai/{ai_target_url}")
-                                        if res.status_code == 200:
-                                            text_to_analyze = res.text
-                                        else:
-                                            st.error(f"Firewall Blocked URL (Error {res.status_code}). Please copy-paste the text manually.")
-                                    except Exception as e:
-                                        st.error(f"Fetch failed: {e}")
-                                
-                                if text_to_analyze:
-                                    st.toast("🧠 Process processing data...")
-                                    try:
-                                        prompt = f"""
-                                        Analyze this webpage text:
-                                        {text_to_analyze[:4000]}
-                                        Extract and format exactly into JSON. Return ONLY raw JSON text:
-                                        {{ "title": "Job Title", "company": "Company", "location": "City or 'Remote'", "description": "4-sentence professional summary.", "salary_amount": "Amount or 'N/A'", "salary_type": "Yearly/Monthly/Hourly/Unspecified" }}
-                                        """
-                                        # Pure-Python REST execution
-                                        ai_output_raw = call_gemini_api(prompt, GEMINI_API_KEY)
-                                        ai_output = ai_output_raw.strip().replace('```json', '').replace('```', '')
-                                        parsed = json.loads(ai_output.strip())
-                                        parsed['url'] = ai_target_url
-                                        st.session_state['draft_job'] = parsed
-                                        st.rerun()
-                                    except Exception as e: st.error(f"Decipher failed: {e}")
-                        else: st.warning("Paste a URL or raw text.")
-                else:
-                    st.warning("⚠️ DRAFT DECIPHERED. Edit and confirm below.")
-                    with st.container(border=True):
-                        c1, c2 = st.columns(2)
-                        with c1: dt = st.text_input("Title", value=st.session_state['draft_job'].get('title', ''))
-                        with c2: dc = st.text_input("Company", value=st.session_state['draft_job'].get('company', ''))
-                        c3, c4, c5 = st.columns([2, 2, 1])
-                        with c3: dl = st.text_input("Location", value=st.session_state['draft_job'].get('location', ''))
-                        with c4: dsa = st.text_input("Compensation", value=st.session_state['draft_job'].get('salary_amount', ''))
-                        with c5:
-                            opts = ["Yearly", "Monthly", "Hourly", "Unspecified"]
-                            def_opt = st.session_state['draft_job'].get('salary_type', 'Unspecified')
-                            dst = st.selectbox("Cycle", opts, index=opts.index(def_opt) if def_opt in opts else 3)
-                        du = st.text_input("URL", value=st.session_state['draft_job'].get('url', ''))
-                        dd = st.text_area("Description", value=st.session_state['draft_job'].get('description', ''), height=150)
-                        
-                        b1, b2 = st.columns(2)
-                        with b1:
-                            if st.button("🚀 CONFIRM & INJECT", type="primary", use_container_width=True):
-                                execute_query("INSERT INTO jobs (id, title, company, location, url, source, description, salary_amount, salary_type, date_added) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-                                              ("AI_"+str(uuid.uuid4())[:8], dt, dc, dl, du, "Gemini AI", dd, dsa, dst, datetime.now().strftime("%Y-%m-%d")))
-                                st.session_state['draft_job'] = None
-                                st.success("Injected!"); st.rerun()
-                        with b2:
-                            if st.button("❌ CANCEL", use_container_width=True):
-                                st.session_state['draft_job'] = None; st.rerun()
-
         with tab_cand:
             st.markdown("#### Registered Candidate Mainframe")
             df_cands = execute_query("SELECT user_email, skills_text, date_uploaded, resume_data FROM user_resumes ORDER BY date_uploaded DESC", fetch=True)
@@ -658,35 +575,33 @@ else:
             if upl:
                 with st.spinner("Running neural analysis..."):
                     rt = extract_text_from_pdf(upl)
-                    if GEMINI_API_KEY:
-                        try:
-                            jc = "".join([f"ID:{r['id']} | Title:{r['title']} | Desc:{str(r['description'])[:150]}\n" for _, r in df_seeker.iterrows()])
-                            prompt = f"Resume:\n{rt[:2500]}\nJobs:\n{jc}\nFind top 3 best matching Job IDs. Return ONLY comma-separated IDs."
-                            
-                            # Pure-Python REST execution
-                            resp_text = call_gemini_api(prompt, GEMINI_API_KEY)
-                            m_ids = [i.strip() for i in resp_text.replace('`','').split(',')]
-                            matched = df_seeker[df_seeker['id'].isin(m_ids)]
-                            
-                            sk_prompt = f"Resume:\n{rt[:2000]}\nReturn a clean, comma-separated list of the top 5 technical skills found. Return ONLY the skills."
-                            # Pure-Python REST execution
-                            sk_str = call_gemini_api(sk_prompt, GEMINI_API_KEY).replace('`','').strip()
-                            
-                            execute_query("INSERT INTO user_resumes (user_email, resume_data, skills_text, date_uploaded) VALUES (%s, %s, %s, %s) ON CONFLICT (user_email) DO UPDATE SET resume_data = EXCLUDED.resume_data, skills_text = EXCLUDED.skills_text, date_uploaded = EXCLUDED.date_uploaded",
-                                          (ue, upl.getvalue(), sk_str, datetime.now().strftime("%Y-%m-%d")))
-                            st.toast("⚡ Resume secure-uplinked to Databank!")
-                            
-                            if not matched.empty:
-                                st.success("🟢 AI Analysis Complete.")
-                                for _, row in matched.iterrows(): display_job_card(row, user_email=ue, is_saved=(row['id'] in saved_ids))
-                            else: st.info("No perfect matches found.")
-                        except Exception as e: st.error(f"AI Error: {e}")
+                    
+                    # 100% Client-Side Heuristic Keyword Matcher (Zero API calls/Zero latency)
+                    skills_pool = [
+                        'python', 'sql', 'react', 'java', 'ai', 'data', 'llm', 'machine learning', 
+                        'pytorch', 'prompt engineering', 'typescript', 'javascript', 'c++', 'rust', 
+                        'aws', 'docker', 'kubernetes', 'tensorflow', 'nlp'
+                    ]
+                    detected_skills = [s for s in skills_pool if s in rt]
+                    skills_str = ", ".join(detected_skills).upper() if detected_skills else "GENERAL OPERATIVE"
+                    
+                    # Store resume datacard safely inside DB
+                    execute_query("INSERT INTO user_resumes (user_email, resume_data, skills_text, date_uploaded) VALUES (%s, %s, %s, %s) ON CONFLICT (user_email) DO UPDATE SET resume_data = EXCLUDED.resume_data, skills_text = EXCLUDED.skills_text, date_uploaded = EXCLUDED.date_uploaded",
+                                  (ue, upl.getvalue(), skills_str, datetime.now().strftime("%Y-%m-%d")))
+                    st.toast("⚡ Resume secure-uplinked to Databank!")
+                    
+                    if detected_skills:
+                        # Scan database for jobs containing candidate keywords
+                        pattern = '|'.join([rf"\b{s}\b" for s in detected_skills])
+                        matched = df_seeker[
+                            df_seeker['title'].str.lower().str.contains(pattern, na=False) | 
+                            df_seeker['description'].str.lower().str.contains(pattern, na=False)
+                        ]
+                        if not matched.empty:
+                            st.success(f"🟢 Search Engine Complete. Found {len(matched)} matched job records.")
+                            for _, row in matched.head(10).iterrows(): 
+                                display_job_card(row, user_email=ue, is_saved=(row['id'] in saved_ids))
+                        else:
+                            st.info("No direct active matches currently on the grid. Check back later.")
                     else:
-                        st.warning("⚠️ Gemini API Key not found. Falling back to Keyword Heuristics.")
-                        skills = [s for s in ['python', 'sql', 'react', 'java', 'ai', 'data', 'llm', 'machine learning', 'pytorch', 'prompt engineering'] if s in rt]
-                        if skills:
-                            matched = df_seeker[df_seeker['title'].str.lower().str.contains('|'.join(skills))]
-                            if not matched.empty:
-                                for _, row in matched.head(10).iterrows(): display_job_card(row, user_email=ue, is_saved=(row['id'] in saved_ids))
-                            else: st.info("No matching nodes.")
-                        else: st.warning("Analysis failed.")
+                        st.warning("No technical profile indicators identified in the document.")
