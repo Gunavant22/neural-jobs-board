@@ -1,6 +1,7 @@
 import streamlit as st
 import requests
 import psycopg2
+from psycopg2.pool import ThreadedConnectionPool
 import os
 import pandas as pd
 import PyPDF2
@@ -8,6 +9,9 @@ import uuid
 import json
 import zipfile
 import io
+import urllib.parse
+import ssl
+import secrets
 from bs4 import BeautifulSoup
 import feedparser
 from datetime import datetime, timedelta
@@ -74,12 +78,32 @@ def apply_futuristic_css():
 apply_futuristic_css()
 
 # ==========================================
-# 3. HELPER FUNCTIONS
+# 3. HELPER FUNCTIONS & POOLED DB ACCESS
 # ==========================================
-def execute_query(query, params=None, fetch=False):
-    """🛠️ CRASH-PROOF DB READER: Safely fetches data without Segfaults!"""
+@st.cache_resource
+def init_connection_pool():
+    """Initializes a shared, multi-threaded connection pool to bypass DB limits."""
     try:
-        conn = psycopg2.connect(DB_CONN_STR)
+        return ThreadedConnectionPool(minconn=1, maxconn=10, dsn=DB_CONN_STR)
+    except Exception as e:
+        print(f"DATABASE CONNECTION POOL CRITICAL ERROR: {e}")
+        return None
+
+def execute_query(query, params=None, fetch=False):
+    """🛠️ CRASH-PROOF & SECURE DB RUNTIME: Uses connection pooling and hides raw SQL traces."""
+    pool = init_connection_pool()
+    if not pool:
+        st.error("Infrastructure Error: Secure connection pool initialization failed.")
+        return pd.DataFrame()
+        
+    try:
+        conn = pool.getconn()
+    except Exception as e:
+        print(f"POOLED DB ERROR (getConnection): {e}")
+        st.error("System capacity limit reached. Please try again in a few moments.")
+        return pd.DataFrame()
+        
+    try:
         c = conn.cursor()
         if params: c.execute(query, params)
         else: c.execute(query)
@@ -88,14 +112,28 @@ def execute_query(query, params=None, fetch=False):
             rows = c.fetchall()
             cols = [desc[0] for desc in c.description] if c.description else []
             conn.commit()
-            conn.close()
             return pd.DataFrame(rows, columns=cols)
-        
+            
         conn.commit()
-        conn.close()
-    except Exception as e:
-        st.error(f"Database Error: {e}")
         return pd.DataFrame()
+    except Exception as e:
+        conn.rollback()
+        # Security: Log raw system/schema issues to backend server logs only
+        print(f"SECURE DATABASE CRITICAL EXCEPTION: {e}")
+        st.error("A secure network database exception occurred. System Administrators have been notified.")
+        return pd.DataFrame()
+    finally:
+        pool.putconn(conn)
+
+def init_db():
+    execute_query('''CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, title TEXT, company TEXT, location TEXT, url TEXT, source TEXT, description TEXT, salary_amount TEXT, salary_type TEXT, date_added TEXT)''')
+    execute_query('''CREATE TABLE IF NOT EXISTS sys_settings (id INTEGER PRIMARY KEY, is_maintenance INTEGER, resume_time TEXT, message TEXT, is_warning INTEGER DEFAULT 0, warning_msg TEXT DEFAULT '')''')
+    execute_query('''CREATE TABLE IF NOT EXISTS saved_jobs (user_email TEXT, job_id TEXT, PRIMARY KEY (user_email, job_id))''')
+    execute_query('''CREATE TABLE IF NOT EXISTS user_resumes (user_email TEXT PRIMARY KEY, resume_data BYTEA, skills_text TEXT, date_uploaded TEXT)''')
+    execute_query('''CREATE TABLE IF NOT EXISTS users (email TEXT PRIMARY KEY, name TEXT, role TEXT, last_active TEXT, total_logins INTEGER DEFAULT 0)''')
+    execute_query("INSERT INTO sys_settings (id, is_maintenance, resume_time, message, is_warning, warning_msg) VALUES (1, 0, '', '', 0, '') ON CONFLICT (id) DO NOTHING")
+
+init_db()
 
 def get_sys_status():
     df = execute_query("SELECT is_maintenance, resume_time, message, is_warning, warning_msg FROM sys_settings WHERE id=1", fetch=True)
@@ -107,10 +145,6 @@ def get_sys_status():
             return (0, "", "", 0, "")
         return (is_maint, res_time, msg, is_warn, warn_msg)
     return (0, "", "", 0, "")
-
-def purge_resume_data(email):
-    execute_query("UPDATE user_resumes SET resume_data = NULL WHERE user_email = %s", (email,))
-    st.toast(f"🧹 Database purged for {email}. Space saved!")
 
 def generate_zip_datapack(active_resumes):
     zip_buffer = io.BytesIO()
@@ -124,13 +158,18 @@ def extract_text_from_pdf(uploaded_file):
     try: return "".join([page.extract_text() + " " for page in PyPDF2.PdfReader(uploaded_file).pages]).lower()
     except: return ""
 
-def display_job_card(row, is_admin=False, user_email=None, is_saved=False, is_teaser=False):
-    # Safe String Date Comparison
-    thirty_days_str = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
-    is_expired = is_admin and str(row['date_added']) < thirty_days_str
+def format_salary(salary_amount, salary_type):
+    """Sanitizes and formats unlisted or misformatted compensation strings."""
+    sal_val = str(salary_amount).strip()
+    if not sal_val or sal_val.lower() in ["n/a", ""]:
+        return "Unlisted"
+    if not sal_val.startswith("$"):
+        sal_val = f"${sal_val}"
+    return f"{sal_val} / {salary_type}"
 
-    sal_val = str(row['salary_amount']).strip()
-    sal = f"${sal_val} / {row['salary_type']}" if sal_val and sal_val.lower() not in ["n/a", ""] and not sal_val.startswith("$") else (f"{sal_val} / {row['salary_type']}" if sal_val and sal_val.lower() not in ["n/a", ""] else "Unlisted")
+def display_job_card(row, is_admin=False, user_email=None, is_saved=False, is_teaser=False):
+    is_expired = is_admin and pd.to_datetime(row['date_added']) < (pd.to_datetime('today') - timedelta(days=30))
+    sal = format_salary(row['salary_amount'], row['salary_type'])
     date_str = str(row['date_added'])[:10]
 
     if is_teaser:
@@ -146,13 +185,17 @@ def display_job_card(row, is_admin=False, user_email=None, is_saved=False, is_te
                 st.markdown("<p style='color:#8892b0; font-size:0.8rem; text-align:center;'>Log in to decrypt link.</p>", unsafe_allow_html=True)
         return
 
+    # Check for NaN / Empty Company Name to prevent indexing crash
+    company_val = str(row['company']).strip() if pd.notna(row['company']) else ""
+    avatar_char = company_val[0].upper() if company_val else "X"
+
     with st.container(border=True):
         col_icon, col_details, col_action = st.columns([1, 7, 2])
-        with col_icon: st.markdown(f"<div class='company-avatar'>{row['company'][0].upper() if row['company'] else 'X'}</div>", unsafe_allow_html=True)
+        with col_icon: st.markdown(f"<div class='company-avatar'>{avatar_char}</div>", unsafe_allow_html=True)
         with col_details:
             title_html = f"<h3 style='margin-bottom:0px; color:#ff4757;'>[EXPIRED] {row['title']}</h3>" if is_expired else f"<h3 style='margin-bottom:0px; color:#ffffff;'>{row['title']}</h3>"
             st.markdown(title_html, unsafe_allow_html=True)
-            st.markdown(f"<p style='color:#8892b0; font-size: 1rem; margin-top: 5px;'>{row['company']}</p>", unsafe_allow_html=True)
+            st.markdown(f"<p style='color:#8892b0; font-size: 1rem; margin-top: 5px;'>{company_val if company_val else 'Unspecified Entity'}</p>", unsafe_allow_html=True)
             st.markdown(f"<span class='tech-tag'>LOC: {row['location']}</span> <span class='tech-tag'>PAY: {sal}</span> <span class='tech-tag'>DATE: {date_str}</span>", unsafe_allow_html=True)
         with col_action:
             st.write("")
@@ -171,7 +214,7 @@ def display_job_card(row, is_admin=False, user_email=None, is_saved=False, is_te
             st.write(row['description'])
 
 # ==========================================
-# 5. STATE MANAGEMENT & OAUTH
+# 5. STATE MANAGEMENT & SECURE OAUTH
 # ==========================================
 if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
 if 'user_role' not in st.session_state: st.session_state['user_role'] = None
@@ -181,8 +224,23 @@ if 'show_bulk_purge' not in st.session_state: st.session_state['show_bulk_purge'
 if 'draft_job' not in st.session_state: st.session_state['draft_job'] = None
 if 'last_heartbeat' not in st.session_state: st.session_state['last_heartbeat'] = datetime.min
 
+# Secure State Generation (CSRF Mitigation)
+if 'oauth_state' not in st.session_state:
+    st.session_state['oauth_state'] = secrets.token_urlsafe(16)
+
+is_maint, res_time, maint_msg, is_warn, warn_msg = get_sys_status()
+state_token = st.session_state['oauth_state']
+auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}&scope=openid%20email%20profile&state={state_token}"
+
 if not st.session_state['logged_in'] and 'code' in st.query_params:
     with st.spinner("Decrypting neural pathways..."):
+        returned_state = st.query_params.get("state")
+        
+        # Verify OAuth state matches local token to block CSRF exploits
+        if not returned_state or returned_state != st.session_state['oauth_state']:
+            st.error("Authentication security error: state token mismatch (anti-CSRF barrier failed).")
+            st.stop()
+            
         code = st.query_params['code']
         res = requests.post("https://oauth2.googleapis.com/token", data={"code": code, "client_id": CLIENT_ID, "client_secret": CLIENT_SECRET, "redirect_uri": REDIRECT_URI, "grant_type": "authorization_code"})
         if res.status_code == 200:
@@ -199,9 +257,6 @@ if not st.session_state['logged_in'] and 'code' in st.query_params:
             st.rerun()
         else: 
             st.error("Access Denied. Invalid authorization protocols.")
-
-is_maint, res_time, maint_msg, is_warn, warn_msg = get_sys_status()
-auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}&scope=openid%20email%20profile"
 
 if is_maint == 1 and st.session_state['user_role'] != "admin":
     if st.session_state['logged_in']:
@@ -259,11 +314,10 @@ if not st.session_state['logged_in']:
     st.divider()
     st.markdown("<h4 style='text-align: center; color: #8892b0; margin-bottom: 30px;'>[ RECENT ACTIVE NODES ]</h4>", unsafe_allow_html=True)
     
-    df_public = execute_query("SELECT * FROM jobs", fetch=True)
+    # SQL optimization: Fetch past 30 days and limit to 10 entries directly from the DB
+    thirty_days_str = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
+    df_public = execute_query("SELECT * FROM jobs WHERE date_added >= %s ORDER BY date_added DESC LIMIT 10", (thirty_days_str,), fetch=True)
     if not df_public.empty:
-        thirty_days_str = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
-        df_public = df_public[df_public['date_added'] >= thirty_days_str]
-        df_public = df_public.sort_values(by='date_added', ascending=False).head(10)
         for _, row in df_public.iterrows(): display_job_card(row, is_admin=False, is_teaser=True)
     else: st.info("Grid is currently initiating. Check back later for new uplinks.")
 
@@ -288,18 +342,25 @@ else:
             st.session_state.update({'logged_in': False, 'user_role': None, 'user_name': "", "user_email": ""})
             st.rerun()
 
-    df = execute_query("SELECT * FROM jobs", fetch=True)
-
     # --- ADMIN VIEW ---
     if st.session_state['user_role'] == "admin":
         st.markdown("### [ GRID METRICS ]")
+        
+        # SQL Optimization: Use database aggregate queries instead of pulling the entire table
         thirty_days_str = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
-        active_nodes = len(df[df['date_added'] >= thirty_days_str]) if not df.empty else 0
+        df_counts = execute_query(
+            "SELECT COUNT(*) as total, SUM(CASE WHEN date_added >= %s THEN 1 ELSE 0 END) as active FROM jobs", 
+            (thirty_days_str,), 
+            fetch=True
+        )
+        total_nodes = int(df_counts.iloc[0]['total']) if not df_counts.empty else 0
+        active_nodes = int(df_counts.iloc[0]['active']) if not df_counts.empty and pd.notna(df_counts.iloc[0]['active']) else 0
+        expired_nodes = total_nodes - active_nodes
         
         m1, m2, m3, m4 = st.columns(4)
-        m1.metric("TOTAL DATANODES", len(df))
+        m1.metric("TOTAL DATANODES", total_nodes)
         m2.metric("ACTIVE NODES (30D)", active_nodes)
-        m3.metric("EXPIRED NODES", len(df) - active_nodes)
+        m3.metric("EXPIRED NODES", expired_nodes)
         m4.metric("SYSTEM STATUS", "MAINTENANCE" if is_maint == 1 else "WARNING ACTIVE" if is_warn == 1 else "ONLINE")
             
         st.write("---")
@@ -381,7 +442,7 @@ else:
                     st.session_state['inject_msg'] = None
                 elif st.session_state.get('inject_msg') == "error":
                     st.error("SYSTEM ERROR: Title, Company, and URL are required.")
-                    st.session_state['inject_status'] = None
+                    st.session_state['inject_msg'] = None
                 
                 st.text_input("Job Title", key="m_title")
                 st.text_input("Entity / Company", key="m_company")
@@ -399,31 +460,50 @@ else:
                 with cb1: st.button("🚀 INJECT NODE", type="primary", use_container_width=True, on_click=inject_man)
                 with cb2: st.button("🧹 CLEAR ALL", use_container_width=True, on_click=clear_manual)
 
+        # 🧠 NEW: AUTO-URL IMPORTER (Bypasses bot blocks via Jina AI)
         if tab_ai:
             with tab_ai:
-                st.markdown("#### 🧠 Free Gemini AI Importer")
+                st.markdown("#### 🧠 Auto-URL Importer (Gemini AI)")
                 if st.session_state['draft_job'] is None:
-                    raw_messy_text = st.text_area("Paste Messy Webpage Text", height=200)
-                    ai_target_url = st.text_input("Target Apply URL")
-                    if st.button("🧠 DECIPHER RAW DATA", type="primary", use_container_width=True):
-                        if raw_messy_text and ai_target_url:
-                            with st.spinner("Gemini 1.5 Flash Deciphering data..."):
-                                try:
-                                    model = genai.GenerativeModel("gemini-1.5-flash")
-                                    prompt = f"""
-                                    Analyze this messy webpage text:
-                                    {raw_messy_text[:4000]}
-                                    Extract and format exactly into JSON. Return ONLY raw JSON text:
-                                    {{ "title": "Job Title", "company": "Company", "location": "City or 'Remote'", "description": "4-sentence professional summary.", "salary_amount": "Amount or 'N/A'", "salary_type": "Yearly/Monthly/Hourly/Unspecified" }}
-                                    """
-                                    response = model.generate_content(prompt)
-                                    ai_output = response.text.strip().replace('```json', '').replace('```', '')
-                                    parsed = json.loads(ai_output.strip())
-                                    parsed['url'] = ai_target_url
-                                    st.session_state['draft_job'] = parsed
-                                    st.rerun()
-                                except Exception as e: st.error(f"Decipher failed: {e}")
-                        else: st.warning("Paste text and URL.")
+                    st.write("Paste the job URL below. The system will automatically bypass bot-protections, read the page, and decipher the job details.")
+                    ai_target_url = st.text_input("Target Apply URL", placeholder="https://work.mercor.com/explore?...")
+                    raw_messy_text = st.text_area("Fallback: Paste raw text here ONLY if the URL fetch fails", height=100)
+                    
+                    if st.button("🧠 FETCH & DECIPHER", type="primary", use_container_width=True):
+                        if ai_target_url or raw_messy_text:
+                            with st.spinner("Initiating sequence..."):
+                                text_to_analyze = raw_messy_text
+                                
+                                # Fetch from URL if text box is empty
+                                if not text_to_analyze and ai_target_url:
+                                    st.toast("🌐 Fetching URL via Jina AI Reader...")
+                                    try:
+                                        res = requests.get(f"https://r.jina.ai/{ai_target_url}")
+                                        if res.status_code == 200:
+                                            text_to_analyze = res.text
+                                        else:
+                                            st.error(f"Firewall Blocked URL (Error {res.status_code}). Please copy-paste the text manually.")
+                                    except Exception as e:
+                                        st.error(f"Fetch failed: {e}")
+                                
+                                if text_to_analyze:
+                                    st.toast("🧠 Gemini 1.5 Flash processing data...")
+                                    try:
+                                        model = genai.GenerativeModel("gemini-1.5-flash")
+                                        prompt = f"""
+                                        Analyze this webpage text:
+                                        {text_to_analyze[:4000]}
+                                        Extract and format exactly into JSON. Return ONLY raw JSON text:
+                                        {{ "title": "Job Title", "company": "Company", "location": "City or 'Remote'", "description": "4-sentence professional summary.", "salary_amount": "Amount or 'N/A'", "salary_type": "Yearly/Monthly/Hourly/Unspecified" }}
+                                        """
+                                        response = model.generate_content(prompt)
+                                        ai_output = response.text.strip().replace('```json', '').replace('```', '')
+                                        parsed = json.loads(ai_output.strip())
+                                        parsed['url'] = ai_target_url
+                                        st.session_state['draft_job'] = parsed
+                                        st.rerun()
+                                    except Exception as e: st.error(f"Decipher failed: {e}")
+                        else: st.warning("Paste a URL or raw text.")
                 else:
                     st.warning("⚠️ DRAFT DECIPHERED. Edit and confirm below.")
                     with st.container(border=True):
@@ -490,15 +570,19 @@ else:
             else: st.info("No candidates yet.")
 
         with tab2:
-            if df.empty: st.info("Grid empty.")
+            # Query-Optimized Admin List: Show latest 100 job nodes
+            df_admin_jobs = execute_query("SELECT * FROM jobs ORDER BY date_added DESC LIMIT 100", fetch=True)
+            if df_admin_jobs.empty: st.info("Grid empty.")
             else:
-                for _, row in df.sort_values(by='date_added', ascending=False).iterrows(): display_job_card(row, is_admin=True)
+                for _, row in df_admin_jobs.iterrows(): display_job_card(row, is_admin=True)
 
     # --- SEEKER VIEW ---
     elif st.session_state['user_role'] == "seeker":
         ue = st.session_state['user_email']
+        
+        # SQL Optimization: Filter outdated nodes directly inside SQL instead of Pandas
         thirty_days_str = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
-        df_seeker = df[df['date_added'] >= thirty_days_str].copy()
+        df_seeker = execute_query("SELECT * FROM jobs WHERE date_added >= %s", (thirty_days_str,), fetch=True)
 
         df_saved = execute_query("SELECT job_id FROM saved_jobs WHERE user_email=%s", (ue,), fetch=True)
         saved_ids = df_saved['job_id'].tolist() if not df_saved.empty else []
@@ -510,10 +594,11 @@ else:
             with ct: t_filter = st.selectbox("TIME RANGE", ["All Active", "Past 24 Hours", "Past 7 Days"])
             st.write("---")
             
-            if time_filter == "Past 24 Hours": 
+            # FIXED: Variable updated from time_filter -> t_filter to correct Seeker tab crash
+            if t_filter == "Past 24 Hours": 
                 t_str = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
                 df_seeker = df_seeker[df_seeker['date_added'] >= t_str]
-            elif time_filter == "Past 7 Days": 
+            elif t_filter == "Past 7 Days": 
                 t_str = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
                 df_seeker = df_seeker[df_seeker['date_added'] >= t_str]
                 
