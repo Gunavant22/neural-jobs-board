@@ -275,6 +275,7 @@ if is_maint == 1 and st.session_state['user_role'] != "admin":
             """, unsafe_allow_html=True)
         st.stop() 
 
+# --- NEW PUBLIC LANDING PAGE (THE TEASER GRID) ---
 if not st.session_state['logged_in']:
     auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}&scope=openid%20email%20profile"
     col1, col2, col3 = st.columns([1, 3, 1])
@@ -445,7 +446,8 @@ else:
                         st.session_state['manual_desc'] = f"Apply :- {url}\n\n" + st.session_state['manual_desc']
                 
                 def clear_form_cb():
-                    for k in ['m_title', 'm_company', 'm_location', 'm_sal_amount', 'manual_url', 'manual_desc']: st.session_state[k] = ""
+                    for k in ['m_title', 'm_company', 'm_location', 'm_sal_amount', 'manual_url', 'manual_desc']: 
+                        st.session_state[k] = ""
                 
                 def inject_node_cb():
                     t = st.session_state['m_title']
@@ -462,7 +464,8 @@ else:
                         conn.close()
                         clear_form_cb()
                         st.session_state['inject_status'] = "success"
-                    else: st.session_state['inject_status'] = "error"
+                    else:
+                        st.session_state['inject_status'] = "error"
 
                 if st.session_state['inject_status'] == "success":
                     st.success("Injection Successful! Form reset for next entry.")
@@ -474,7 +477,8 @@ else:
                 st.text_input("Job Title", key="m_title")
                 st.text_input("Entity / Company", key="m_company")
                 m_is_remote = st.radio("Is this a Remote position?", ["Yes", "No"], horizontal=True, key="m_is_remote")
-                if m_is_remote == "No": st.text_input("Specify Location", key="m_location")
+                if m_is_remote == "No":
+                    st.text_input("Specify Location", key="m_location")
                 
                 c1, c2 = st.columns(2)
                 with c1: st.text_input("Compensation (in USD $)", key="m_sal_amount")
@@ -484,8 +488,10 @@ else:
                 st.text_area("File Contents", key="manual_desc", height=150)
                 
                 col_btn1, col_btn2 = st.columns([4, 1])
-                with col_btn1: st.button("🚀 INJECT NODE", type="primary", use_container_width=True, on_click=inject_node_cb)
-                with col_btn2: st.button("🧹 CLEAR ALL", use_container_width=True, on_click=clear_form_cb)
+                with col_btn1:
+                    st.button("🚀 INJECT NODE", type="primary", use_container_width=True, on_click=inject_node_cb)
+                with col_btn2:
+                    st.button("🧹 CLEAR ALL", use_container_width=True, on_click=clear_form_cb)
 
         if tab_ai:
             with tab_ai:
@@ -523,7 +529,7 @@ else:
                                     parsed_json['url'] = ai_target_url
                                     st.session_state['draft_job'] = parsed_json
                                     st.rerun()
-                                except Exception as e: st.error(f"Gemini Decipher failed: {e}")
+                                except Exception as e: st.error(f"Gemini Decipher failed: Please try again. Error: {e}")
                         else: st.warning("Please paste the messy webpage text and add the apply URL.")
                 else:
                     st.warning("⚠️ DRAFT DECIPHERED. Please review, edit, and confirm the job details below before publishing.")
@@ -568,43 +574,40 @@ else:
         with tab_cand:
             st.markdown("#### Registered Candidate Mainframe")
             conn = psycopg2.connect(DB_URL)
-            c = conn.cursor()
-            c.execute("SELECT user_email, skills_text, date_uploaded, resume_data FROM user_resumes ORDER BY date_uploaded DESC")
-            candidates = c.fetchall()
-            conn.close()
-            active_resumes = [cand for cand in candidates if cand[3] is not None and len(cand[3]) > 0]
+            df_cands = fetch_dataframe("SELECT user_email, skills_text, date_uploaded, resume_data FROM user_resumes ORDER BY date_uploaded DESC")
             
-            if active_resumes:
-                st.markdown("### 📦 Bulk Datapack Extraction")
-                zip_data = generate_zip_datapack(active_resumes)
-                def trigger_bulk_purge_confirmation(): st.session_state['show_bulk_purge'] = True
-                st.download_button(label=f"💾 DOWNLOAD ALL RESUMES ({len(active_resumes)} FILES .ZIP)", data=zip_data, file_name=f"neural_grid_resumes_{datetime.now().strftime('%Y-%m-%d')}.zip", mime="application/zip", use_container_width=True, on_click=trigger_bulk_purge_confirmation, key="bulk_zip_dl")
+            if not df_cands.empty:
+                active_resumes = df_cands.dropna(subset=['resume_data']).values.tolist()
                 
-                if st.session_state['show_bulk_purge']:
-                    st.write("")
-                    st.warning("⚠️ DECRYPTION COMPLETE. Do you want to purge these raw PDF files from the cloud database now to reclaim storage space?")
-                    col_yes, col_no = st.columns(2)
-                    with col_yes:
-                        if st.button("🚨 YES, PURGE CLOUD STORAGE", type="primary", use_container_width=True):
-                            conn = psycopg2.connect(DB_URL)
-                            c = conn.cursor()
-                            c.execute("UPDATE user_resumes SET resume_data = NULL WHERE resume_data IS NOT NULL")
-                            conn.commit()
-                            conn.close()
-                            st.session_state['show_bulk_purge'] = False
-                            st.toast("🧹 Cloud storage successfully purged! Space reclaimed.")
-                            st.rerun()
-                    with col_no:
-                        if st.button("❌ NO, KEEP CLOUD COPIES", use_container_width=True):
-                            st.session_state['show_bulk_purge'] = False
-                            st.rerun()
-                st.write("---")
-            
-            st.markdown("### 👤 Candidate Profiles")
-            if not candidates: st.info("No candidates have uploaded their resumes to the neural grid yet.")
-            else:
-                for cand in candidates:
-                    email, skills_text, date_uploaded, resume_data = cand
+                if active_resumes:
+                    st.markdown("### 📦 Bulk Datapack Extraction")
+                    zip_data = generate_zip_datapack(active_resumes)
+                    def trigger_bulk_purge_confirmation(): st.session_state['show_bulk_purge'] = True
+                    st.download_button(label=f"💾 DOWNLOAD ALL RESUMES ({len(active_resumes)} FILES .ZIP)", data=zip_data, file_name=f"neural_grid_resumes_{datetime.now().strftime('%Y-%m-%d')}.zip", mime="application/zip", use_container_width=True, on_click=trigger_bulk_purge_confirmation, key="bulk_zip_dl")
+                    
+                    if st.session_state['show_bulk_purge']:
+                        st.write("")
+                        st.warning("⚠️ DECRYPTION COMPLETE. Do you want to purge these raw PDF files from the cloud database now to reclaim storage space?")
+                        col_yes, col_no = st.columns(2)
+                        with col_yes:
+                            if st.button("🚨 YES, PURGE CLOUD STORAGE", type="primary", use_container_width=True):
+                                conn = psycopg2.connect(DB_URL)
+                                c = conn.cursor()
+                                c.execute("UPDATE user_resumes SET resume_data = NULL WHERE resume_data IS NOT NULL")
+                                conn.commit()
+                                conn.close()
+                                st.session_state['show_bulk_purge'] = False
+                                st.toast("🧹 Cloud storage successfully purged! Space reclaimed.")
+                                st.rerun()
+                        with col_no:
+                            if st.button("❌ NO, KEEP CLOUD COPIES", use_container_width=True):
+                                st.session_state['show_bulk_purge'] = False
+                                st.rerun()
+                    st.write("---")
+                
+                st.markdown("### 👤 Candidate Profiles")
+                for _, cand in df_cands.iterrows():
+                    email, skills_text, date_uploaded, resume_data = cand['user_email'], cand['skills_text'], cand['date_uploaded'], cand['resume_data']
                     with st.container(border=True):
                         col_info, col_dl = st.columns([4, 1])
                         with col_info:
@@ -616,6 +619,8 @@ else:
                             if resume_data is not None and len(resume_data) > 0:
                                 st.download_button(label="DOWNLOAD PDF 💾", data=bytes(resume_data), file_name=f"{email.split('@')[0]}_resume.pdf", mime="application/pdf", use_container_width=True, key=f"dl_{email}", on_click=purge_resume_data, args=(email,))
                             else: st.button("🧹 PURGED / SECURED", key=f"purged_{email}", disabled=True, use_container_width=True)
+            else:
+                st.info("No candidates have uploaded their resumes to the neural grid yet.")
 
         with tab2:
             if df.empty: st.info("Grid empty. Inject new nodes.")
@@ -629,11 +634,8 @@ else:
         thirty_days_ago = pd.to_datetime('today') - timedelta(days=30)
         df_seeker = df[df['date_added'] >= thirty_days_ago].copy()
 
-        conn = psycopg2.connect(DB_URL)
-        c = conn.cursor()
-        c.execute("SELECT job_id FROM saved_jobs WHERE user_email=%s", (user_email,))
-        saved_job_ids = [r[0] for r in c.fetchall()]
-        conn.close()
+        df_saved_ids = fetch_dataframe("SELECT job_id FROM saved_jobs WHERE user_email=%s", (user_email,))
+        saved_job_ids = df_saved_ids['job_id'].tolist() if not df_saved_ids.empty else []
 
         tab_browse, tab_saved, tab_match = st.tabs(["[ GRID SEARCH ]", "[ ⭐ SAVED NODES ]", "[ AI OVERRIDE ]"])
         with tab_browse:
