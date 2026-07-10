@@ -1,7 +1,6 @@
 streamlit
 requests
 pandas
-PyPDF2
 beautifulsoup4
 pg8000
 feedparser
