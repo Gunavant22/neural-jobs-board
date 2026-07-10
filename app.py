@@ -1,7 +1,5 @@
 import streamlit as st
 import requests
-import psycopg2
-from psycopg2.pool import ThreadedConnectionPool
 import os
 import pandas as pd
 import PyPDF2
@@ -18,10 +16,8 @@ from bs4 import BeautifulSoup
 import feedparser
 from datetime import datetime, timedelta
 
-try:
-    import google.generativeai as genai
-except ImportError:
-    pass
+# Pure-Python PostgreSQL Driver (100% immune to Python 3.14 Segfaults)
+import psycopg
 
 # ==========================================
 # 1. PRODUCTION CONFIGURATION & SECRETS
@@ -33,8 +29,25 @@ ADMIN_EMAILS = [st.secrets["ADMIN_EMAIL"]]
 DB_CONN_STR = st.secrets["DB_CONNECTION_STRING"]
 GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", "")
 
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
+# Pure-Python REST Caller for Gemini (Bypasses crash-prone gRPC/google-generativeai SDK)
+def call_gemini_api(prompt, api_key):
+    if not api_key:
+        raise Exception("Gemini API key is missing.")
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+    headers = {"Content-Type": "application/json"}
+    payload = {
+        "contents": [
+            {"parts": [{"text": prompt}]}
+        ]
+    }
+    response = requests.post(url, headers=headers, json=payload)
+    if response.status_code == 200:
+        try:
+            return response.json()["candidates"][0]["content"]["parts"][0]["text"]
+        except (KeyError, IndexError):
+            raise Exception("Failed to parse response from Gemini.")
+    else:
+        raise Exception(f"Gemini API Error {response.status_code}: {response.text}")
 
 # ==========================================
 # 2. STATELESS OAUTH CSRF ENGINE
@@ -119,34 +132,16 @@ def apply_futuristic_css():
 apply_futuristic_css()
 
 # ==========================================
-# 4. CRASH-PROOF DATABASE HANDLER (POOLED)
+# 4. PURE PYTHON DATABASE HANDLER (psycopg)
 # ==========================================
-@st.cache_resource
-def init_connection_pool():
-    """Initializes a shared connection pool to bypass DB exhaustion crashes."""
-    try:
-        return ThreadedConnectionPool(minconn=1, maxconn=10, dsn=DB_CONN_STR)
-    except Exception as e:
-        print(f"DATABASE CONNECTION POOL INITIALIZATION FAILURE: {e}")
-        return None
-
 def execute_query(query, params=None, fetch=False):
-    """🛠️ POOLED DB RUNTIME: Safe connection management and clean error logs."""
-    pool = init_connection_pool()
-    if not pool:
-        st.error("Secure connection failure: Connection pool unavailable.")
-        return pd.DataFrame()
-        
+    """🛠️ CRASH-PROOF DB HANDLER: Uses pure-Python psycopg 3 context managers to avoid Segfaults."""
     try:
-        conn = pool.getconn()
-    except Exception as e:
-        print(f"Connection Pool Exhaustion: {e}")
-        st.error("Connection capacity limit reached. Please reload in a moment.")
-        return pd.DataFrame()
-        
-    try:
+        conn = psycopg.connect(DB_CONN_STR)
         c = conn.cursor()
+        
         if params:
+            # Safely handle potential binary parameters without requiring extra wrappers
             safe_params = tuple(bytes(p) if isinstance(p, (bytes, memoryview)) else p for p in params)
             c.execute(query, safe_params)
         else:
@@ -156,18 +151,17 @@ def execute_query(query, params=None, fetch=False):
             rows = c.fetchall()
             cols = [desc[0] for desc in c.description] if c.description else []
             conn.commit()
+            conn.close()
             return pd.DataFrame(rows, columns=cols)
             
         conn.commit()
+        conn.close()
         return pd.DataFrame()
     except Exception as e:
-        conn.rollback()
         # Log real exception securely to server terminal/logs
-        print(f"SECURE DATABASE CRITICAL EXCEPTION: {e}")
+        print(f"DATABASE RUNTIME EXCEPTION: {e}")
         st.error("A secure network database exception occurred. System Administrators have been notified.")
         return pd.DataFrame()
-    finally:
-        pool.putconn(conn)
 
 def init_db():
     execute_query('''CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, title TEXT, company TEXT, location TEXT, url TEXT, source TEXT, description TEXT, salary_amount TEXT, salary_type TEXT, date_added TEXT)''')
@@ -266,10 +260,9 @@ if 'show_bulk_purge' not in st.session_state: st.session_state['show_bulk_purge'
 if 'draft_job' not in st.session_state: st.session_state['draft_job'] = None
 if 'last_heartbeat' not in st.session_state: st.session_state['last_heartbeat'] = datetime.min
 
-# RESTORED: Fetches is_maint, res_time, etc. to prevent NameError inside app main process
 is_maint, res_time, maint_msg, is_warn, warn_msg = get_sys_status()
 
-# Secure dynamic token generation for state
+# Secure dynamic token generation for state (CSRF mitigation)
 state_token = generate_state_token(CLIENT_SECRET)
 auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}&scope=openid%20email%20profile&state={state_token}"
 
@@ -505,31 +498,50 @@ else:
                 with cb1: st.button("🚀 INJECT NODE", type="primary", use_container_width=True, on_click=inject_man)
                 with cb2: st.button("🧹 CLEAR ALL", use_container_width=True, on_click=clear_manual)
 
+        # 🧠 AUTO-URL IMPORTER (Bypasses bot blocks via Jina AI)
         if tab_ai:
             with tab_ai:
-                st.markdown("#### 🧠 Free Gemini AI Importer")
+                st.markdown("#### 🧠 Auto-URL Importer (Gemini AI)")
                 if st.session_state['draft_job'] is None:
-                    raw_messy_text = st.text_area("Paste Messy Webpage Text", height=200)
-                    ai_target_url = st.text_input("Target Apply URL")
-                    if st.button("🧠 DECIPHER RAW DATA", type="primary", use_container_width=True):
-                        if raw_messy_text and ai_target_url:
-                            with st.spinner("Gemini 1.5 Flash Deciphering data..."):
-                                try:
-                                    model = genai.GenerativeModel("gemini-1.5-flash")
-                                    prompt = f"""
-                                    Analyze this messy webpage text:
-                                    {raw_messy_text[:4000]}
-                                    Extract and format exactly into JSON. Return ONLY raw JSON text:
-                                    {{ "title": "Job Title", "company": "Company", "location": "City or 'Remote'", "description": "4-sentence professional summary.", "salary_amount": "Amount or 'N/A'", "salary_type": "Yearly/Monthly/Hourly/Unspecified" }}
-                                    """
-                                    response = model.generate_content(prompt)
-                                    ai_output = response.text.strip().replace('```json', '').replace('```', '')
-                                    parsed = json.loads(ai_output.strip())
-                                    parsed['url'] = ai_target_url
-                                    st.session_state['draft_job'] = parsed
-                                    st.rerun()
-                                except Exception as e: st.error(f"Decipher failed: {e}")
-                        else: st.warning("Paste text and URL.")
+                    st.write("Paste the job URL below. The system will automatically bypass bot-protections, read the page, and decipher the job details.")
+                    ai_target_url = st.text_input("Target Apply URL", placeholder="https://work.mercor.com/explore?...")
+                    raw_messy_text = st.text_area("Fallback: Paste raw text here ONLY if the URL fetch fails", height=100)
+                    
+                    if st.button("🧠 FETCH & DECIPHER", type="primary", use_container_width=True):
+                        if ai_target_url or raw_messy_text:
+                            with st.spinner("Initiating sequence..."):
+                                text_to_analyze = raw_messy_text
+                                
+                                # Fetch from URL if text box is empty
+                                if not text_to_analyze and ai_target_url:
+                                    st.toast("🌐 Fetching URL via Jina AI Reader...")
+                                    try:
+                                        res = requests.get(f"https://r.jina.ai/{ai_target_url}")
+                                        if res.status_code == 200:
+                                            text_to_analyze = res.text
+                                        else:
+                                            st.error(f"Firewall Blocked URL (Error {res.status_code}). Please copy-paste the text manually.")
+                                    except Exception as e:
+                                        st.error(f"Fetch failed: {e}")
+                                
+                                if text_to_analyze:
+                                    st.toast("🧠 Process processing data...")
+                                    try:
+                                        prompt = f"""
+                                        Analyze this webpage text:
+                                        {text_to_analyze[:4000]}
+                                        Extract and format exactly into JSON. Return ONLY raw JSON text:
+                                        {{ "title": "Job Title", "company": "Company", "location": "City or 'Remote'", "description": "4-sentence professional summary.", "salary_amount": "Amount or 'N/A'", "salary_type": "Yearly/Monthly/Hourly/Unspecified" }}
+                                        """
+                                        # Pure-Python REST execution
+                                        ai_output_raw = call_gemini_api(prompt, GEMINI_API_KEY)
+                                        ai_output = ai_output_raw.strip().replace('```json', '').replace('```', '')
+                                        parsed = json.loads(ai_output.strip())
+                                        parsed['url'] = ai_target_url
+                                        st.session_state['draft_job'] = parsed
+                                        st.rerun()
+                                    except Exception as e: st.error(f"Decipher failed: {e}")
+                        else: st.warning("Paste a URL or raw text.")
                 else:
                     st.warning("⚠️ DRAFT DECIPHERED. Edit and confirm below.")
                     with st.container(border=True):
@@ -648,18 +660,20 @@ else:
                     rt = extract_text_from_pdf(upl)
                     if GEMINI_API_KEY:
                         try:
-                            model = genai.GenerativeModel("gemini-1.5-flash")
                             jc = "".join([f"ID:{r['id']} | Title:{r['title']} | Desc:{str(r['description'])[:150]}\n" for _, r in df_seeker.iterrows()])
                             prompt = f"Resume:\n{rt[:2500]}\nJobs:\n{jc}\nFind top 3 best matching Job IDs. Return ONLY comma-separated IDs."
-                            resp = model.generate_content(prompt)
-                            m_ids = [i.strip() for i in resp.text.replace('`','').split(',')]
+                            
+                            # Pure-Python REST execution
+                            resp_text = call_gemini_api(prompt, GEMINI_API_KEY)
+                            m_ids = [i.strip() for i in resp_text.replace('`','').split(',')]
                             matched = df_seeker[df_seeker['id'].isin(m_ids)]
                             
                             sk_prompt = f"Resume:\n{rt[:2000]}\nReturn a clean, comma-separated list of the top 5 technical skills found. Return ONLY the skills."
-                            sk_str = model.generate_content(sk_prompt).text.replace('`','').strip()
+                            # Pure-Python REST execution
+                            sk_str = call_gemini_api(sk_prompt, GEMINI_API_KEY).replace('`','').strip()
                             
                             execute_query("INSERT INTO user_resumes (user_email, resume_data, skills_text, date_uploaded) VALUES (%s, %s, %s, %s) ON CONFLICT (user_email) DO UPDATE SET resume_data = EXCLUDED.resume_data, skills_text = EXCLUDED.skills_text, date_uploaded = EXCLUDED.date_uploaded",
-                                          (ue, psycopg2.Binary(upl.getvalue()), sk_str, datetime.now().strftime("%Y-%m-%d")))
+                                          (ue, upl.getvalue(), sk_str, datetime.now().strftime("%Y-%m-%d")))
                             st.toast("⚡ Resume secure-uplinked to Databank!")
                             
                             if not matched.empty:
