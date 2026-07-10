@@ -42,7 +42,7 @@ def apply_futuristic_css():
     * { font-family: 'Outfit', sans-serif; }
     #MainMenu, footer, header {visibility: hidden;}
     .stApp { background-color: #050810; background-image: linear-gradient(rgba(0, 242, 254, 0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(0, 242, 254, 0.03) 1px, transparent 1px); background-size: 30px 30px; background-position: center center; }
-    .login-wrapper { display: flex; flex-direction: column; align-items: center; justify-content: center; margin-top: 10vh; animation: float 6s ease-in-out infinite; }
+    .login-wrapper { display: flex; flex-direction: column; align-items: center; justify-content: center; margin-top: 5vh; animation: float 6s ease-in-out infinite; }
     @keyframes float { 0% { transform: translateY(0px); } 50% { transform: translateY(-15px); } 100% { transform: translateY(0px); } }
     .login-card { background: linear-gradient(145deg, rgba(15, 23, 42, 0.7) 0%, rgba(20, 20, 30, 0.5) 100%); border: 1px solid rgba(0, 242, 254, 0.3); border-radius: 20px; padding: 50px 40px; box-shadow: 0 0 40px rgba(0, 242, 254, 0.1); text-align: center; backdrop-filter: blur(16px); width: 100%; max-width: 500px; transition: all 0.5s ease;}
     .maintenance-card { border: 1px solid rgba(255, 71, 87, 0.5) !important; box-shadow: 0 0 50px rgba(255, 71, 87, 0.2) !important; }
@@ -61,7 +61,12 @@ def apply_futuristic_css():
     [data-testid="stVerticalBlockBorderWrapper"] { border-radius: 12px !important; border: 1px solid rgba(0, 242, 254, 0.15) !important; background: rgba(15, 23, 42, 0.4) !important; backdrop-filter: blur(10px) !important; transition: all 0.2s ease-in-out; }
     [data-testid="stVerticalBlockBorderWrapper"]:hover { border: 1px solid rgba(0, 242, 254, 0.5) !important; box-shadow: 0 0 20px rgba(0, 242, 254, 0.15); }
     .tech-tag { background: rgba(0, 242, 254, 0.1); color: #00f2fe; padding: 4px 10px; border-radius: 4px; font-size: 0.8rem; font-weight: 700; border: 1px solid rgba(0, 242, 254, 0.3); margin-right: 8px; font-family: 'Share Tech Mono', monospace;}
+    
+    /* NEW: Redacted Tag styling for Teaser Mode */
+    .tech-tag-redacted { background: rgba(255, 71, 87, 0.1); color: #ff4757; padding: 4px 10px; border-radius: 4px; font-size: 0.8rem; font-weight: 700; border: 1px solid rgba(255, 71, 87, 0.3); margin-right: 8px; font-family: 'Share Tech Mono', monospace;}
+    
     .company-avatar { width: 60px; height: 60px; background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border: 2px solid #b06ab3; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.8rem; font-weight: bold; color: #b06ab3; box-shadow: 0 0 15px rgba(176, 106, 179, 0.4); margin: auto; }
+    .company-avatar-locked { border: 2px solid #ff4757; color: #ff4757; box-shadow: 0 0 15px rgba(255, 71, 87, 0.4); }
     .stTabs [data-baseweb="tab-list"] { gap: 30px; }
     .stTabs [data-baseweb="tab"] { font-size: 1.1rem; font-weight: 700; color: #8892b0; }
     .stTabs [aria-selected="true"] { color: #00f2fe !important; border-bottom: 2px solid #00f2fe !important; text-shadow: 0 0 10px rgba(0, 242, 254, 0.5); }
@@ -130,10 +135,34 @@ def extract_text_from_pdf(uploaded_file):
     try: return "".join([page.extract_text() + " " for page in PyPDF2.PdfReader(uploaded_file).pages]).lower()
     except: return ""
 
-def display_job_card(row, is_admin=False, user_email=None, is_saved=False):
+def display_job_card(row, is_admin=False, user_email=None, is_saved=False, is_teaser=False):
     is_expired = False
     if is_admin and pd.to_datetime(row['date_added']) < (pd.to_datetime('today') - timedelta(days=30)): is_expired = True
 
+    # Salary formatting is safe for all modes
+    sal_val = str(row['salary_amount']).strip()
+    if sal_val and sal_val.lower() not in ["n/a", ""]:
+        if not sal_val.startswith("$"): sal_val = "$" + sal_val
+        sal = f"{sal_val} / {row['salary_type']}"
+    else: sal = "Unlisted"
+
+    # --- TEASER MODE (Public Landing Page) ---
+    if is_teaser:
+        with st.container(border=True):
+            col_icon, col_details, col_action = st.columns([1, 7, 2])
+            with col_icon:
+                st.markdown("<div class='company-avatar company-avatar-locked'>🔒</div>", unsafe_allow_html=True)
+            with col_details:
+                st.markdown(f"<h3 style='margin-bottom:0px; color:#ffffff;'>{row['title']}</h3>", unsafe_allow_html=True)
+                st.markdown("<p style='color:#ff4757; font-size: 1.1rem; margin-top: 5px;'>[ COMPANY REDACTED ]</p>", unsafe_allow_html=True)
+                st.markdown(f"<span class='tech-tag-redacted'>LOC: [ ENCRYPTED ]</span> <span class='tech-tag'>PAY: {sal}</span>", unsafe_allow_html=True)
+            with col_action:
+                st.write("")
+                st.write("")
+                st.markdown("<p style='color:#8892b0; font-size:0.8rem; text-align:center;'>Log in to decrypt application link.</p>", unsafe_allow_html=True)
+        return
+
+    # --- NORMAL MODE (Logged In) ---
     with st.container(border=True):
         col_icon, col_details, col_action = st.columns([1, 7, 2])
         with col_icon:
@@ -143,19 +172,11 @@ def display_job_card(row, is_admin=False, user_email=None, is_saved=False):
             if is_expired: title_html = f"<h3 style='margin-bottom:0px; color:#ff4757;'>[EXPIRED] {row['title']}</h3>"
             st.markdown(title_html, unsafe_allow_html=True)
             st.markdown(f"<p style='color:#8892b0; font-size: 1.1rem; margin-top: 5px;'>{row['company']}</p>", unsafe_allow_html=True)
-            
-            sal_val = str(row['salary_amount']).strip()
-            if sal_val and sal_val.lower() not in ["n/a", ""]:
-                if not sal_val.startswith("$"): sal_val = "$" + sal_val
-                sal = f"{sal_val} / {row['salary_type']}"
-            else: sal = "Unlisted"
-            
             date_str = str(row['date_added'])[:10]
             st.markdown(f"<span class='tech-tag'>LOC: {row['location']}</span> <span class='tech-tag'>PAY: {sal}</span> <span class='tech-tag'>DATE: {date_str}</span>", unsafe_allow_html=True)
         with col_action:
             st.write("")
             st.link_button("INITIATE UPLINK", row['url'], use_container_width=True, type="primary")
-            
             if not is_admin and user_email:
                 if is_saved:
                     if st.button("❌ REMOVE", key=f"unsave_{row['id']}", use_container_width=True):
@@ -218,6 +239,7 @@ if not st.session_state['logged_in'] and 'code' in st.query_params:
 
 is_maint, res_time, maint_msg, is_warn, warn_msg = get_sys_status()
 
+# 🛑 MAINTENANCE LOCKOUT LOGIC 🛑
 if is_maint == 1 and st.session_state['user_role'] != "admin":
     if st.session_state['logged_in']:
         col1, col2, col3 = st.columns([1, 2, 1])
@@ -256,24 +278,54 @@ if is_maint == 1 and st.session_state['user_role'] != "admin":
             """, unsafe_allow_html=True)
         st.stop() 
 
+# --- NEW PUBLIC LANDING PAGE (THE TEASER GRID) ---
 if not st.session_state['logged_in']:
     auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}&scope=openid%20email%20profile"
-    col1, col2, col3 = st.columns([1, 2, 1])
+    
+    # 1. The Hero Section
+    col1, col2, col3 = st.columns([1, 3, 1])
     with col2:
         st.markdown(f"""
-        <div class="login-wrapper">
-            <div class="login-card">
-                <p class="system-status">[ SYSTEM STATUS: SECURE & ONLINE ]</p>
+        <div class="login-wrapper" style="margin-top: 5vh; margin-bottom: 5vh; animation: none;">
+            <div style="text-align: center;">
+                <p class="system-status">[ PUBLIC ACCESS: LIMITED ]</p>
                 <div class="app-title-large">NEURAL</div>
                 <div class="app-title-large" style="font-size: 2.5rem; margin-bottom: 20px;">// TALENT GRID</div>
-                <p style="color: #8892b0; font-size: 1.1rem; line-height: 1.5; margin-bottom: 30px;">The premier decentralized manual hub for Artificial Intelligence, Large Language Models, and Data Science operatives.</p>
-                <a href="{auth_url}" class="cyber-btn" target="_blank">CONNECT DATASTREAM</a>
+                <p style="color: #8892b0; font-size: 1.2rem; line-height: 1.5; margin-bottom: 30px;">
+                    The premier decentralized manual hub for Artificial Intelligence, Large Language Models, and Data Science operatives.
+                </p>
+                <a href="{auth_url}" class="cyber-btn" target="_blank">CONNECT DATASTREAM TO UNLOCK</a>
             </div>
         </div>
         """, unsafe_allow_html=True)
+        
+    st.divider()
+    
+    # 2. The Teaser Grid
+    st.markdown("<h3 style='text-align: center; color: #8892b0; margin-bottom: 30px;'>[ RECENT ACTIVE NODES ]</h3>", unsafe_allow_html=True)
+    
+    # Pull jobs from database
+    conn = psycopg2.connect(DB_URL)
+    df_public = pd.read_sql_query("SELECT * FROM jobs", conn)
+    conn.close()
+    
+    if not df_public.empty:
+        if 'date_added' in df_public.columns: df_public['date_added'] = pd.to_datetime(df_public['date_added'], errors='coerce').fillna(pd.to_datetime('today'))
+        else: df_public['date_added'] = pd.to_datetime('today')
+        
+        # Only show active jobs, sort newest first, and limit to top 10
+        thirty_days_ago = pd.to_datetime('today') - timedelta(days=30)
+        df_public = df_public[df_public['date_added'] >= thirty_days_ago]
+        df_public = df_public.sort_values(by='date_added', ascending=False).head(10)
+        
+        # Display as Teaser Cards!
+        for _, row in df_public.iterrows():
+            display_job_card(row, is_admin=False, is_teaser=True)
+    else:
+        st.info("Grid is currently initiating. Check back later for new uplinks.")
 
 # ==========================================
-# 6. MAIN APP DASHBOARDS
+# 6. MAIN APP DASHBOARDS (Logged In)
 # ==========================================
 else:
     if (datetime.now() - st.session_state['last_heartbeat']).total_seconds() > 60:
@@ -400,8 +452,6 @@ else:
         with tab1:
             with st.container(border=True):
                 st.markdown("#### INJECT MANUAL NODE")
-                
-                # --- STATE MANAGEMENT LOGIC & CALLBACKS ---
                 if 'manual_url' not in st.session_state: st.session_state['manual_url'] = ""
                 if 'manual_desc' not in st.session_state: st.session_state['manual_desc'] = ""
                 if 'm_title' not in st.session_state: st.session_state['m_title'] = ""
@@ -412,17 +462,11 @@ else:
                 
                 def sync_url_to_desc():
                     url = st.session_state['manual_url']
-                    if url and "Apply :-" not in st.session_state['manual_desc']:
-                        st.session_state['manual_desc'] = f"Apply :- {url}\n\n" + st.session_state['manual_desc']
-                
+                    if url and "Apply :-" not in st.session_state['manual_desc']: st.session_state['manual_desc'] = f"Apply :- {url}\n\n" + st.session_state['manual_desc']
                 def clear_form_cb():
-                    for k in ['m_title', 'm_company', 'm_location', 'm_sal_amount', 'manual_url', 'manual_desc']: 
-                        st.session_state[k] = ""
-                
+                    for k in ['m_title', 'm_company', 'm_location', 'm_sal_amount', 'manual_url', 'manual_desc']: st.session_state[k] = ""
                 def inject_node_cb():
-                    t = st.session_state['m_title']
-                    c = st.session_state['m_company']
-                    u = st.session_state['manual_url']
+                    t, c, u = st.session_state['m_title'], st.session_state['m_company'], st.session_state['manual_url']
                     if t and c and u:
                         loc = st.session_state.get('m_location', 'Remote') if st.session_state.get('m_is_remote') == 'No' else 'Remote'
                         conn = psycopg2.connect(DB_URL)
@@ -434,8 +478,7 @@ else:
                         conn.close()
                         clear_form_cb()
                         st.session_state['inject_status'] = "success"
-                    else:
-                        st.session_state['inject_status'] = "error"
+                    else: st.session_state['inject_status'] = "error"
 
                 if st.session_state['inject_status'] == "success":
                     st.success("Injection Successful! Form reset for next entry.")
@@ -447,8 +490,7 @@ else:
                 st.text_input("Job Title", key="m_title")
                 st.text_input("Entity / Company", key="m_company")
                 m_is_remote = st.radio("Is this a Remote position?", ["Yes", "No"], horizontal=True, key="m_is_remote")
-                if m_is_remote == "No":
-                    st.text_input("Specify Location (e.g. San Francisco, CA / On-site)", key="m_location")
+                if m_is_remote == "No": st.text_input("Specify Location", key="m_location")
                 
                 c1, c2 = st.columns(2)
                 with c1: st.text_input("Compensation (in USD $)", key="m_sal_amount")
@@ -458,10 +500,8 @@ else:
                 st.text_area("File Contents", key="manual_desc", height=150)
                 
                 col_btn1, col_btn2 = st.columns([4, 1])
-                with col_btn1:
-                    st.button("🚀 INJECT NODE", type="primary", use_container_width=True, on_click=inject_node_cb)
-                with col_btn2:
-                    st.button("🧹 CLEAR ALL", use_container_width=True, on_click=clear_form_cb)
+                with col_btn1: st.button("🚀 INJECT NODE", type="primary", use_container_width=True, on_click=inject_node_cb)
+                with col_btn2: st.button("🧹 CLEAR ALL", use_container_width=True, on_click=clear_form_cb)
 
         if tab_ai:
             with tab_ai:
@@ -499,7 +539,7 @@ else:
                                     parsed_json['url'] = ai_target_url
                                     st.session_state['draft_job'] = parsed_json
                                     st.rerun()
-                                except Exception as e: st.error(f"Gemini Decipher failed: {e}")
+                                except Exception as e: st.error(f"Gemini Decipher failed: Please try again. Error: {e}")
                         else: st.warning("Please paste the messy webpage text and add the apply URL.")
                 else:
                     st.warning("⚠️ DRAFT DECIPHERED. Please review, edit, and confirm the job details below before publishing.")
@@ -701,4 +741,3 @@ else:
                                 for _, row in matched.head(10).iterrows(): display_job_card(row, is_admin=False, user_email=user_email, is_saved=(row['id'] in saved_job_ids))
                             else: st.info("No matching active nodes currently active.")
                         else: st.warning("Analysis failed. No valid parameters detected.")
-                    
