@@ -3,6 +3,6 @@ requests
 pandas
 PyPDF2
 beautifulsoup4
-psycopg2-binary
-google-generativeai>=0.7.2
+pg8000
+google-genai
 feedparser
