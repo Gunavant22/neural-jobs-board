@@ -74,19 +74,17 @@ def apply_futuristic_css():
 apply_futuristic_css()
 
 # ==========================================
-# 3. DATABASE SETUP 
+# 3. DATABASE SETUP (MEMORY-LEAK PROOF)
 # ==========================================
 def init_db():
-    conn = psycopg2.connect(DB_URL)
-    c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, title TEXT, company TEXT, location TEXT, url TEXT, source TEXT, description TEXT, salary_amount TEXT, salary_type TEXT, date_added TEXT)''')
-    c.execute('''CREATE TABLE IF NOT EXISTS sys_settings (id INTEGER PRIMARY KEY, is_maintenance INTEGER, resume_time TEXT, message TEXT, is_warning INTEGER DEFAULT 0, warning_msg TEXT DEFAULT '')''')
-    c.execute('''CREATE TABLE IF NOT EXISTS saved_jobs (user_email TEXT, job_id TEXT, PRIMARY KEY (user_email, job_id))''')
-    c.execute('''CREATE TABLE IF NOT EXISTS user_resumes (user_email TEXT PRIMARY KEY, resume_data BYTEA, skills_text TEXT, date_uploaded TEXT)''')
-    c.execute('''CREATE TABLE IF NOT EXISTS users (email TEXT PRIMARY KEY, name TEXT, role TEXT, last_active TEXT, total_logins INTEGER DEFAULT 0)''')
-    c.execute("INSERT INTO sys_settings (id, is_maintenance, resume_time, message, is_warning, warning_msg) VALUES (1, 0, '', '', 0, '') ON CONFLICT (id) DO NOTHING")
-    conn.commit()
-    conn.close()
+    with psycopg2.connect(DB_URL) as conn:
+        with conn.cursor() as c:
+            c.execute('''CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, title TEXT, company TEXT, location TEXT, url TEXT, source TEXT, description TEXT, salary_amount TEXT, salary_type TEXT, date_added TEXT)''')
+            c.execute('''CREATE TABLE IF NOT EXISTS sys_settings (id INTEGER PRIMARY KEY, is_maintenance INTEGER, resume_time TEXT, message TEXT, is_warning INTEGER DEFAULT 0, warning_msg TEXT DEFAULT '')''')
+            c.execute('''CREATE TABLE IF NOT EXISTS saved_jobs (user_email TEXT, job_id TEXT, PRIMARY KEY (user_email, job_id))''')
+            c.execute('''CREATE TABLE IF NOT EXISTS user_resumes (user_email TEXT PRIMARY KEY, resume_data BYTEA, skills_text TEXT, date_uploaded TEXT)''')
+            c.execute('''CREATE TABLE IF NOT EXISTS users (email TEXT PRIMARY KEY, name TEXT, role TEXT, last_active TEXT, total_logins INTEGER DEFAULT 0)''')
+            c.execute("INSERT INTO sys_settings (id, is_maintenance, resume_time, message, is_warning, warning_msg) VALUES (1, 0, '', '', 0, '') ON CONFLICT (id) DO NOTHING")
 
 init_db()
 
@@ -94,14 +92,12 @@ init_db()
 # 4. HELPER FUNCTIONS
 # ==========================================
 def safe_fetch_df(query, params=None):
-    """🛠️ CRASH-PROOF DB READER: Safely fetches data without Segfaults!"""
-    conn = psycopg2.connect(DB_URL)
-    c = conn.cursor()
-    if params: c.execute(query, params)
-    else: c.execute(query)
-    rows = c.fetchall()
-    cols = [desc[0] for desc in c.description] if c.description else []
-    conn.close()
+    with psycopg2.connect(DB_URL) as conn:
+        with conn.cursor() as c:
+            if params: c.execute(query, params)
+            else: c.execute(query)
+            rows = c.fetchall()
+            cols = [desc[0] for desc in c.description] if c.description else []
     return pd.DataFrame(rows, columns=cols)
 
 def get_sys_status():
@@ -110,21 +106,18 @@ def get_sys_status():
         row = df.iloc[0]
         is_maint, res_time, msg, is_warn, warn_msg = row['is_maintenance'], row['resume_time'], row['message'], row['is_warning'], row['warning_msg']
         if is_maint == 1 and res_time and datetime.now() > datetime.strptime(res_time, "%Y-%m-%d %H:%M:%S"):
-            conn = psycopg2.connect(DB_URL)
-            conn.cursor().execute("UPDATE sys_settings SET is_maintenance=0, is_warning=0 WHERE id=1")
-            conn.commit()
-            conn.close()
+            with psycopg2.connect(DB_URL) as conn:
+                with conn.cursor() as c:
+                    c.execute("UPDATE sys_settings SET is_maintenance=0, is_warning=0 WHERE id=1")
             return (0, "", "", 0, "")
         return (is_maint, res_time, msg, is_warn, warn_msg)
     return (0, "", "", 0, "")
 
 def purge_resume_data(email):
     try:
-        conn = psycopg2.connect(DB_URL)
-        c = conn.cursor()
-        c.execute("UPDATE user_resumes SET resume_data = NULL WHERE user_email = %s", (email,))
-        conn.commit()
-        conn.close()
+        with psycopg2.connect(DB_URL) as conn:
+            with conn.cursor() as c:
+                c.execute("UPDATE user_resumes SET resume_data = NULL WHERE user_email = %s", (email,))
         st.toast(f"🧹 Database purged for {email}. Space saved!")
     except Exception as e: st.error(f"Purge failed: {e}")
 
@@ -149,7 +142,6 @@ def display_job_card(row, is_admin=False, user_email=None, is_saved=False, is_te
         sal = f"{sal_val} / {row['salary_type']}"
     else: sal = "Unlisted"
 
-    # --- TEASER MODE (Public Landing Page) ---
     if is_teaser:
         with st.container(border=True):
             col_icon, col_details, col_action = st.columns([1, 7, 2])
@@ -163,7 +155,6 @@ def display_job_card(row, is_admin=False, user_email=None, is_saved=False, is_te
                 st.markdown("<p style='color:#8892b0; font-size:0.8rem; text-align:center;'>Log in to decrypt link.</p>", unsafe_allow_html=True)
         return
 
-    # --- NORMAL MODE (Logged In) ---
     with st.container(border=True):
         col_icon, col_details, col_action = st.columns([1, 7, 2])
         with col_icon: st.markdown(f"<div class='company-avatar'>{row['company'][0].upper() if row['company'] else 'X'}</div>", unsafe_allow_html=True)
@@ -180,19 +171,15 @@ def display_job_card(row, is_admin=False, user_email=None, is_saved=False, is_te
             if not is_admin and user_email:
                 if is_saved:
                     if st.button("❌ REMOVE", key=f"unsave_{row['id']}", use_container_width=True):
-                        conn = psycopg2.connect(DB_URL)
-                        c = conn.cursor()
-                        c.execute("DELETE FROM saved_jobs WHERE user_email=%s AND job_id=%s", (user_email, row['id']))
-                        conn.commit()
-                        conn.close()
+                        with psycopg2.connect(DB_URL) as conn:
+                            with conn.cursor() as c:
+                                c.execute("DELETE FROM saved_jobs WHERE user_email=%s AND job_id=%s", (user_email, row['id']))
                         st.rerun()
                 else:
                     if st.button("⭐ SAVE NODE", key=f"save_{row['id']}", use_container_width=True):
-                        conn = psycopg2.connect(DB_URL)
-                        c = conn.cursor()
-                        c.execute("INSERT INTO saved_jobs (user_email, job_id) VALUES (%s, %s) ON CONFLICT DO NOTHING", (user_email, row['id']))
-                        conn.commit()
-                        conn.close()
+                        with psycopg2.connect(DB_URL) as conn:
+                            with conn.cursor() as c:
+                                c.execute("INSERT INTO saved_jobs (user_email, job_id) VALUES (%s, %s) ON CONFLICT DO NOTHING", (user_email, row['id']))
                         st.rerun()
 
         with st.expander("DECRYPT DATAFILE (View Description)"):
@@ -222,23 +209,22 @@ if not st.session_state['logged_in'] and 'code' in st.query_params:
             st.session_state.update({'logged_in': True, 'user_name': name, 'user_email': email, 'user_role': role})
             st.query_params.clear()
             
-            conn = psycopg2.connect(DB_URL)
-            c = conn.cursor()
-            now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            c.execute("""
-                INSERT INTO users (email, name, role, last_active, total_logins) 
-                VALUES (%s, %s, %s, %s, 1) 
-                ON CONFLICT (email) 
-                DO UPDATE SET last_active = EXCLUDED.last_active, name = EXCLUDED.name, total_logins = users.total_logins + 1
-            """, (email, name, role, now_str))
-            conn.commit()
-            conn.close()
+            with psycopg2.connect(DB_URL) as conn:
+                with conn.cursor() as c:
+                    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    c.execute("""
+                        INSERT INTO users (email, name, role, last_active, total_logins) 
+                        VALUES (%s, %s, %s, %s, 1) 
+                        ON CONFLICT (email) 
+                        DO UPDATE SET last_active = EXCLUDED.last_active, name = EXCLUDED.name, total_logins = users.total_logins + 1
+                    """, (email, name, role, now_str))
             st.rerun()
         else: 
             st.error("Access Denied. Invalid authorization protocols.")
 
 is_maint, res_time, maint_msg, is_warn, warn_msg = get_sys_status()
 
+# 🛑 MAINTENANCE LOCKOUT LOGIC 🛑
 if is_maint == 1 and st.session_state['user_role'] != "admin":
     if st.session_state['logged_in']:
         col1, col2, col3 = st.columns([1, 2, 1])
@@ -317,12 +303,10 @@ if not st.session_state['logged_in']:
 # ==========================================
 else:
     if (datetime.now() - st.session_state['last_heartbeat']).total_seconds() > 60:
-        conn = psycopg2.connect(DB_URL)
-        c = conn.cursor()
-        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        c.execute("UPDATE users SET last_active = %s WHERE email = %s", (now_str, st.session_state['user_email']))
-        conn.commit()
-        conn.close()
+        with psycopg2.connect(DB_URL) as conn:
+            with conn.cursor() as c:
+                now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                c.execute("UPDATE users SET last_active = %s WHERE email = %s", (now_str, st.session_state['user_email']))
         st.session_state['last_heartbeat'] = datetime.now()
 
     if is_warn == 1: st.markdown(f"<div class='cyber-warning-banner'>⚠️ SYSTEM NOTICE: {warn_msg}</div>", unsafe_allow_html=True)
@@ -393,19 +377,15 @@ else:
                 with st.form("warn_form"):
                     w_msg = st.text_input("Warning Message", value="System maintenance will begin in 15 minutes.")
                     if st.form_submit_button("📢 BROADCAST WARNING"):
-                        conn = psycopg2.connect(DB_URL)
-                        c = conn.cursor()
-                        c.execute("UPDATE sys_settings SET is_warning=%s, warning_msg=%s WHERE id=1", (1, w_msg))
-                        conn.commit()
-                        conn.close()
+                        with psycopg2.connect(DB_URL) as conn:
+                            with conn.cursor() as c:
+                                c.execute("UPDATE sys_settings SET is_warning=%s, warning_msg=%s WHERE id=1", (1, w_msg))
                         st.rerun()
             else:
                 if st.button("🔇 CLEAR WARNING"):
-                    conn = psycopg2.connect(DB_URL)
-                    c = conn.cursor()
-                    c.execute("UPDATE sys_settings SET is_warning=0, warning_msg='' WHERE id=1")
-                    conn.commit()
-                    conn.close()
+                    with psycopg2.connect(DB_URL) as conn:
+                        with conn.cursor() as c:
+                            c.execute("UPDATE sys_settings SET is_warning=0, warning_msg='' WHERE id=1")
                     st.rerun()
 
             st.write("---")
@@ -416,66 +396,26 @@ else:
                     m_msg = st.text_input("Lockdown Message", value="Upgrading core neural network. Stand by.")
                     if st.form_submit_button("🚨 INITIATE LOCKDOWN", type="primary"):
                         resume_calc = (datetime.now() + timedelta(hours=downtime_hours)).strftime("%Y-%m-%d %H:%M:%S")
-                        conn = psycopg2.connect(DB_URL)
-                        c = conn.cursor()
-                        c.execute("UPDATE sys_settings SET is_maintenance=%s, resume_time=%s, message=%s WHERE id=1", (1, resume_calc, m_msg))
-                        conn.commit()
-                        conn.close()
+                        with psycopg2.connect(DB_URL) as conn:
+                            with conn.cursor() as c:
+                                c.execute("UPDATE sys_settings SET is_maintenance=%s, resume_time=%s, message=%s WHERE id=1", (1, resume_calc, m_msg))
                         st.rerun()
             else:
                 if st.button("✅ DEACTIVATE LOCKDOWN"):
-                    conn = psycopg2.connect(DB_URL)
-                    c = conn.cursor()
-                    c.execute("UPDATE sys_settings SET is_maintenance=0 WHERE id=1")
-                    conn.commit()
-                    conn.close()
+                    with psycopg2.connect(DB_URL) as conn:
+                        with conn.cursor() as c:
+                            c.execute("UPDATE sys_settings SET is_maintenance=0 WHERE id=1")
                     st.rerun()
 
         with tab1:
             with st.container(border=True):
                 st.markdown("#### INJECT MANUAL NODE")
                 
-                if 'manual_url' not in st.session_state: st.session_state['manual_url'] = ""
-                if 'manual_desc' not in st.session_state: st.session_state['manual_desc'] = ""
-                if 'm_title' not in st.session_state: st.session_state['m_title'] = ""
-                if 'm_company' not in st.session_state: st.session_state['m_company'] = ""
-                if 'm_location' not in st.session_state: st.session_state['m_location'] = ""
-                if 'm_sal_amount' not in st.session_state: st.session_state['m_sal_amount'] = ""
-                if 'inject_status' not in st.session_state: st.session_state['inject_status'] = None
-                
+                # Input boxes handled dynamically through standard top-to-bottom execution!
                 def sync_url_to_desc():
-                    url = st.session_state['manual_url']
-                    if url and "Apply :-" not in st.session_state['manual_desc']:
-                        st.session_state['manual_desc'] = f"Apply :- {url}\n\n" + st.session_state['manual_desc']
-                
-                def clear_form_cb():
-                    for k in ['m_title', 'm_company', 'm_location', 'm_sal_amount', 'manual_url', 'manual_desc']: 
-                        st.session_state[k] = ""
-                
-                def inject_node_cb():
-                    t = st.session_state['m_title']
-                    c = st.session_state['m_company']
-                    u = st.session_state['manual_url']
-                    if t and c and u:
-                        loc = st.session_state.get('m_location', 'Remote') if st.session_state.get('m_is_remote') == 'No' else 'Remote'
-                        conn = psycopg2.connect(DB_URL)
-                        cur = conn.cursor()
-                        today_str = datetime.now().strftime("%Y-%m-%d")
-                        cur.execute("INSERT INTO jobs (id, title, company, location, url, source, description, salary_amount, salary_type, date_added) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-                                  ("MAN_"+str(uuid.uuid4())[:8], t, c, loc, u, "Manual", st.session_state['manual_desc'] or "No desc", st.session_state['m_sal_amount'] or "N/A", st.session_state.get('m_sal_type', 'Unspecified'), today_str))
-                        conn.commit()
-                        conn.close()
-                        clear_form_cb()
-                        st.session_state['inject_status'] = "success"
-                    else:
-                        st.session_state['inject_status'] = "error"
-
-                if st.session_state['inject_status'] == "success":
-                    st.success("Injection Successful! Form reset for next entry.")
-                    st.session_state['inject_status'] = None
-                elif st.session_state['inject_status'] == "error":
-                    st.error("SYSTEM ERROR: Title, Company, and URL are required.")
-                    st.session_state['inject_status'] = None
+                    url = st.session_state.get('manual_url', '')
+                    if url and "Apply :-" not in st.session_state.get('manual_desc', ''):
+                        st.session_state['manual_desc'] = f"Apply :- {url}\n\n" + st.session_state.get('manual_desc', '')
                 
                 st.text_input("Job Title", key="m_title")
                 st.text_input("Entity / Company", key="m_company")
@@ -492,9 +432,34 @@ else:
                 
                 col_btn1, col_btn2 = st.columns([4, 1])
                 with col_btn1:
-                    st.button("🚀 INJECT NODE", type="primary", use_container_width=True, on_click=inject_node_cb)
+                    if st.button("🚀 INJECT NODE", type="primary", use_container_width=True):
+                        t = st.session_state.get('m_title', '')
+                        c = st.session_state.get('m_company', '')
+                        u = st.session_state.get('manual_url', '')
+                        if t and c and u:
+                            loc = st.session_state.get('m_location', 'Remote') if st.session_state.get('m_is_remote') == 'No' else 'Remote'
+                            try:
+                                with psycopg2.connect(DB_URL) as conn:
+                                    with conn.cursor() as cur:
+                                        today_str = datetime.now().strftime("%Y-%m-%d")
+                                        cur.execute("INSERT INTO jobs (id, title, company, location, url, source, description, salary_amount, salary_type, date_added) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                                                  ("MAN_"+str(uuid.uuid4())[:8], t, c, loc, u, "Manual", st.session_state.get('manual_desc', '') or "No desc", st.session_state.get('m_sal_amount', '') or "N/A", st.session_state.get('m_sal_type', 'Unspecified'), today_str))
+                                
+                                # Manually wipe the form clean on success to prevent callback errors
+                                for k in ['m_title', 'm_company', 'm_location', 'm_sal_amount', 'manual_url', 'manual_desc']: 
+                                    st.session_state[k] = ""
+                                st.success("Injection Successful! Form reset for next entry.")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Database Error: {e}")
+                        else:
+                            st.error("SYSTEM ERROR: Title, Company, and URL are required.")
+
                 with col_btn2:
-                    st.button("🧹 CLEAR ALL", use_container_width=True, on_click=clear_form_cb)
+                    if st.button("🧹 CLEAR ALL", use_container_width=True):
+                        for k in ['m_title', 'm_company', 'm_location', 'm_sal_amount', 'manual_url', 'manual_desc']: 
+                            st.session_state[k] = ""
+                        st.rerun()
 
         if tab_ai:
             with tab_ai:
@@ -555,16 +520,14 @@ else:
                         col_btn1, col_btn2 = st.columns(2)
                         with col_btn1:
                             if st.button("🚀 CONFIRM & INJECT NODE", type="primary", use_container_width=True):
-                                conn = psycopg2.connect(DB_URL)
-                                c = conn.cursor()
-                                today_str = datetime.now().strftime("%Y-%m-%d")
-                                job_id = "AI_" + str(uuid.uuid4())[:8]
-                                c.execute("""
-                                    INSERT INTO jobs (id, title, company, location, url, source, description, salary_amount, salary_type, date_added)
-                                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                                """, (job_id, d_title, d_company, d_location, d_url, "Gemini AI", d_desc, d_sal_amount, d_sal_type, today_str))
-                                conn.commit()
-                                conn.close()
+                                with psycopg2.connect(DB_URL) as conn:
+                                    with conn.cursor() as c:
+                                        today_str = datetime.now().strftime("%Y-%m-%d")
+                                        job_id = "AI_" + str(uuid.uuid4())[:8]
+                                        c.execute("""
+                                            INSERT INTO jobs (id, title, company, location, url, source, description, salary_amount, salary_type, date_added)
+                                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                        """, (job_id, d_title, d_company, d_location, d_url, "Gemini AI", d_desc, d_sal_amount, d_sal_type, today_str))
                                 st.session_state['draft_job'] = None
                                 st.balloons()
                                 st.success("🚀 Node Injected and Live on grid!")
@@ -593,11 +556,9 @@ else:
                         col_yes, col_no = st.columns(2)
                         with col_yes:
                             if st.button("🚨 YES, PURGE CLOUD STORAGE", type="primary", use_container_width=True):
-                                conn = psycopg2.connect(DB_URL)
-                                c = conn.cursor()
-                                c.execute("UPDATE user_resumes SET resume_data = NULL WHERE resume_data IS NOT NULL")
-                                conn.commit()
-                                conn.close()
+                                with psycopg2.connect(DB_URL) as conn:
+                                    with conn.cursor() as c:
+                                        c.execute("UPDATE user_resumes SET resume_data = NULL WHERE resume_data IS NOT NULL")
                                 st.session_state['show_bulk_purge'] = False
                                 st.toast("🧹 Cloud storage successfully purged! Space reclaimed.")
                                 st.rerun()
@@ -691,23 +652,21 @@ else:
                             matched_ids = [i.strip() for i in ai_output.split(',')]
                             matched = df_seeker[df_seeker['id'].isin(matched_ids)]
                             
-                            conn = psycopg2.connect(DB_URL)
-                            c = conn.cursor()
-                            today_str = datetime.now().strftime("%Y-%m-%d")
-                            pdf_bytes = uploaded_file.getvalue()
-                            
-                            skills_prompt = f"Read this resume:\n{resume_text[:2000]}\n\nReturn a clean, comma-separated list of the top 5 technical skills found. Return ONLY the skills, nothing else."
-                            skills_response = model.generate_content(skills_prompt)
-                            skills_str = skills_response.text.replace('```', '').strip()
-                            
-                            c.execute("""
-                                INSERT INTO user_resumes (user_email, resume_data, skills_text, date_uploaded)
-                                VALUES (%s, %s, %s, %s)
-                                ON CONFLICT (user_email) 
-                                DO UPDATE SET resume_data = EXCLUDED.resume_data, skills_text = EXCLUDED.skills_text, date_uploaded = EXCLUDED.date_uploaded
-                            """, (user_email, psycopg2.Binary(pdf_bytes), skills_str, today_str))
-                            conn.commit()
-                            conn.close()
+                            with psycopg2.connect(DB_URL) as conn:
+                                with conn.cursor() as c:
+                                    today_str = datetime.now().strftime("%Y-%m-%d")
+                                    pdf_bytes = uploaded_file.getvalue()
+                                    
+                                    skills_prompt = f"Read this resume:\n{resume_text[:2000]}\n\nReturn a clean, comma-separated list of the top 5 technical skills found. Return ONLY the skills, nothing else."
+                                    skills_response = model.generate_content(skills_prompt)
+                                    skills_str = skills_response.text.replace('```', '').strip()
+                                    
+                                    c.execute("""
+                                        INSERT INTO user_resumes (user_email, resume_data, skills_text, date_uploaded)
+                                        VALUES (%s, %s, %s, %s)
+                                        ON CONFLICT (user_email) 
+                                        DO UPDATE SET resume_data = EXCLUDED.resume_data, skills_text = EXCLUDED.skills_text, date_uploaded = EXCLUDED.date_uploaded
+                                    """, (user_email, psycopg2.Binary(pdf_bytes), skills_str, today_str))
                             st.toast("⚡ Resume secure-uplinked to Neural Databank!")
                             
                             if not matched.empty:
