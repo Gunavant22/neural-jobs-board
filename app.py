@@ -94,7 +94,7 @@ init_db()
 # 4. HELPER FUNCTIONS
 # ==========================================
 def fetch_dataframe(query, params=None):
-    """🛠️ CRASH-PROOF DB READER: Bypasses Pandas Segfault Bugs!"""
+    """🛠️ CRASH-PROOF DB READER: Safely fetches data without Segfaults!"""
     conn = psycopg2.connect(DB_URL)
     c = conn.cursor()
     if params: c.execute(query, params)
@@ -149,6 +149,7 @@ def display_job_card(row, is_admin=False, user_email=None, is_saved=False, is_te
         sal = f"{sal_val} / {row['salary_type']}"
     else: sal = "Unlisted"
 
+    # --- TEASER MODE (Public Landing Page) ---
     if is_teaser:
         with st.container(border=True):
             col_icon, col_details, col_action = st.columns([1, 7, 2])
@@ -162,6 +163,7 @@ def display_job_card(row, is_admin=False, user_email=None, is_saved=False, is_te
                 st.markdown("<p style='color:#8892b0; font-size:0.8rem; text-align:center;'>Log in to decrypt link.</p>", unsafe_allow_html=True)
         return
 
+    # --- NORMAL MODE (Logged In) ---
     with st.container(border=True):
         col_icon, col_details, col_action = st.columns([1, 7, 2])
         with col_icon: st.markdown(f"<div class='company-avatar'>{row['company'][0].upper() if row['company'] else 'X'}</div>", unsafe_allow_html=True)
@@ -207,6 +209,7 @@ if 'show_bulk_purge' not in st.session_state: st.session_state['show_bulk_purge'
 if 'draft_job' not in st.session_state: st.session_state['draft_job'] = None
 if 'last_heartbeat' not in st.session_state: st.session_state['last_heartbeat'] = datetime.min
 
+# Process Google Login First
 if not st.session_state['logged_in'] and 'code' in st.query_params:
     with st.spinner("Decrypting neural pathways..."):
         code = st.query_params['code']
@@ -237,6 +240,7 @@ if not st.session_state['logged_in'] and 'code' in st.query_params:
 
 is_maint, res_time, maint_msg, is_warn, warn_msg = get_sys_status()
 
+# 🛑 MAINTENANCE LOCKOUT LOGIC 🛑
 if is_maint == 1 and st.session_state['user_role'] != "admin":
     if st.session_state['logged_in']:
         col1, col2, col3 = st.columns([1, 2, 1])
@@ -278,6 +282,7 @@ if is_maint == 1 and st.session_state['user_role'] != "admin":
 # --- NEW PUBLIC LANDING PAGE (THE TEASER GRID) ---
 if not st.session_state['logged_in']:
     auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}&scope=openid%20email%20profile"
+    
     col1, col2, col3 = st.columns([1, 3, 1])
     with col2:
         st.markdown(f"""
@@ -289,7 +294,7 @@ if not st.session_state['logged_in']:
                 <p style="color: #8892b0; font-size: 1.1rem; line-height: 1.5; margin-bottom: 20px;">
                     The premier decentralized hub for Artificial Intelligence, Large Language Models, and Data Science operatives.
                 </p>
-                <a href="{auth_url}" class="cyber-btn" target="_blank">🔐 LOGIN TO UNLOCK</a>
+                <a href="{auth_url}" class="cyber-btn" target="_top">🔐 LOGIN TO UNLOCK</a>
             </div>
         </div>
         """, unsafe_allow_html=True)
@@ -573,7 +578,6 @@ else:
 
         with tab_cand:
             st.markdown("#### Registered Candidate Mainframe")
-            conn = psycopg2.connect(DB_URL)
             df_cands = fetch_dataframe("SELECT user_email, skills_text, date_uploaded, resume_data FROM user_resumes ORDER BY date_uploaded DESC")
             
             if not df_cands.empty:
