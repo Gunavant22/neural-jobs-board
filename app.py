@@ -1,13 +1,16 @@
 import streamlit as st
 import requests
 import psycopg2
-import os 
 import pandas as pd
 import PyPDF2
 import uuid
-import zipfile
-import io
+import json
 from datetime import datetime, timedelta
+
+try:
+    import google.generativeai as genai
+except ImportError:
+    pass
 
 # ==========================================
 # 1. PRODUCTION CONFIGURATION & SECRETS
@@ -17,6 +20,11 @@ CLIENT_SECRET = st.secrets["CLIENT_SECRET"]
 REDIRECT_URI = st.secrets["REDIRECT_URI"]
 ADMIN_EMAILS = [st.secrets["ADMIN_EMAIL"]]
 DB_URL = st.secrets["SUPABASE_URL"]
+GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", "")
+
+# Configure Gemini if key is present
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
 
 # ==========================================
 # 2. FUTURISTIC UI & ANIMATIONS
@@ -54,8 +62,7 @@ def apply_futuristic_css():
     .stTabs [data-baseweb="tab"] { font-size: 1.1rem; font-weight: 700; color: #8892b0; }
     .stTabs [aria-selected="true"] { color: #00f2fe !important; border-bottom: 2px solid #00f2fe !important; text-shadow: 0 0 10px rgba(0, 242, 254, 0.5); }
     </style>
-    """
-    st.markdown(css, unsafe_allow_html=True)
+    """, unsafe_allow_html=True)
 
 apply_futuristic_css()
 
@@ -136,7 +143,7 @@ def purge_resume_data(email):
         st.error(f"Purge failed: {e}")
 
 def generate_zip_datapack(active_resumes):
-    """🛠️ NEW: Compresses multiple PDFs into one ZIP file in-memory!"""
+    import zipfile, io
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
         for email, data in active_resumes:
@@ -204,7 +211,7 @@ if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
 if 'user_role' not in st.session_state: st.session_state['user_role'] = None
 if 'user_name' not in st.session_state: st.session_state['user_name'] = ""
 if 'user_email' not in st.session_state: st.session_state['user_email'] = "" 
-if 'show_bulk_purge' not in st.session_state: st.session_state['show_bulk_purge'] = False # Tracking bulk purge
+if 'show_bulk_purge' not in st.session_state: st.session_state['show_bulk_purge'] = False
 
 # Process Google Login First
 if not st.session_state['logged_in'] and 'code' in st.query_params:
@@ -319,7 +326,12 @@ else:
             
         st.write("---")
 
-        tab1, tab2, tab_cand, tab3 = st.tabs(["[ ➕ INJECT DATA ]", "[ 📋 NODE LIST ]", "[ 📄 CANDIDATES ]", "[ ⚙️ SYS CONTROLS ]"])
+        # 🧠 DYNAMIC TAB LOADING: Only shows Gemini Importer if API Key is set!
+        if GEMINI_API_KEY:
+            tab1, tab_ai, tab2, tab_cand, tab3 = st.tabs(["[ ➕ INJECT DATA ]", "[ 🧠 AI IMPORTER ]", "[ 📋 NODE LIST ]", "[ 📄 CANDIDATES ]", "[ ⚙️ SYS CONTROLS ]"])
+        else:
+            tab1, tab2, tab_cand, tab3 = st.tabs(["[ ➕ INJECT DATA ]", "[ 📋 NODE LIST ]", "[ 📄 CANDIDATES ]", "[ ⚙️ SYS CONTROLS ]"])
+            tab_ai = None
         
         with tab3:
             st.markdown("#### Stage 1: Global Broadcast (Warning)")
@@ -397,15 +409,66 @@ else:
                         st.rerun()
                     else:
                         st.error("SYSTEM ERROR: Title, Company, and URL are required.")
-                        
-        with tab2:
-            if df.empty: 
-                st.info("Grid empty. Inject new nodes.")
-            else:
-                df = df.sort_values(by='date_added', ascending=False)
-                for _, row in df.iterrows(): display_job_card(row, is_admin=True)
 
-        # 📄 CANDIDATES MANAGEMENT TAB (WITH BULK ZIP & AUTO-CONFIRM OVERRIDE)
+        # 🧠 NEW: FREE GEMINI AI MAGIC BOX IMPORTER TAB (ADMIN ONLY)
+        if tab_ai:
+            with tab_ai:
+                st.markdown("#### 🧠 Free Gemini AI Importer: Copy-Paste Any Webpage")
+                st.write("Go to Mercor, LinkedIn, or any job board. Copy the entire page (Ctrl+A -> Ctrl+C). Paste the raw text below, paste the link, and click **Decipher**.")
+                
+                raw_messy_text = st.text_area("Paste Messy Webpage Text Here", height=200, placeholder="Pasted raw text from Mercor...")
+                ai_target_url = st.text_input("Target Apply URL", placeholder="https://work.mercor.com/explore?...")
+                
+                if st.button("🧠 DECIPHER & INJECT NODE", type="primary", use_container_width=True):
+                    if raw_messy_text and ai_target_url:
+                        with st.spinner("Gemini AI Deciphering and formatting data..."):
+                            try:
+                                model = genai.GenerativeModel("gemini-1.5-flash")
+                                prompt = f"""
+                                Analyze this raw, messy webpage text copied from a career website:
+                                {raw_messy_text[:4000]}
+                                
+                                Extract and format the information exactly into this JSON structure (Return ONLY raw valid JSON):
+                                {{
+                                    "title": "Clean, professional Job Title",
+                                    "company": "Company Name",
+                                    "location": "Specific city/state or 'Remote'",
+                                    "description": "Write a highly professional, formatted 4-sentence summary of the role, benefits, and requirements.",
+                                    "salary_amount": "Estimate or amount (e.g. 150,000) or 'N/A'",
+                                    "salary_type": "Yearly, Monthly, Hourly, or Unspecified"
+                                }}
+                                """
+                                response = model.generate_content(
+                                    prompt,
+                                    generation_config={"response_mime_type": "application/json"}
+                                )
+                                
+                                # Parse Gemini's JSON Output
+                                parsed_json = json.loads(response.text)
+                                
+                                # Save to Supabase Cloud Database!
+                                conn = psycopg2.connect(DB_URL)
+                                c = conn.cursor()
+                                today_str = datetime.now().strftime("%Y-%m-%d")
+                                job_id = "AI_" + str(uuid.uuid4())[:8]
+                                
+                                c.execute("""
+                                    INSERT INTO jobs (id, title, company, location, url, source, description, salary_amount, salary_type, date_added)
+                                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                """, (job_id, parsed_json['title'], parsed_json['company'], parsed_json['location'], ai_target_url, "Gemini AI", parsed_json['description'], parsed_json['salary_amount'], parsed_json['salary_type'], today_str))
+                                conn.commit()
+                                conn.close()
+                                
+                                st.balloons()
+                                st.success(f"🚀 Gemini AI Successfully Deciphered and Injected: **{parsed_json['title']}** at **{parsed_json['company']}**!")
+                                st.rerun()
+                                
+                            except Exception as e:
+                                st.error(f"Gemini Decipher failed: {e}")
+                    else:
+                        st.warning("Please paste the messy webpage text and add the apply URL.")
+
+        # 📄 CANDIDATES MANAGEMENT TAB
         with tab_cand:
             st.markdown("#### Registered Candidate Mainframe")
             st.write("Browse candidates. Download raw resumes individually or compress them into a bulk ZIP package.")
@@ -429,7 +492,6 @@ else:
                 # Generate Zip File in memory
                 zip_data = generate_zip_datapack(active_resumes)
                 
-                # Callback to reveal the confirmation warning box after download
                 def trigger_bulk_purge_confirmation():
                     st.session_state['show_bulk_purge'] = True
                 
@@ -452,7 +514,6 @@ else:
                         if st.button("🚨 YES, PURGE CLOUD STORAGE", type="primary", use_container_width=True):
                             conn = psycopg2.connect(DB_URL)
                             c = conn.cursor()
-                            # Wipe the binary data for all active candidates, keeping the text stats intact!
                             c.execute("UPDATE user_resumes SET resume_data = NULL WHERE resume_data IS NOT NULL")
                             conn.commit()
                             conn.close()
@@ -495,6 +556,13 @@ else:
                             else:
                                 st.button("🧹 PURGED / SECURED", key=f"purged_{email}", disabled=True, use_container_width=True)
 
+        with tab2:
+            if df.empty: 
+                st.info("Grid empty. Inject new nodes.")
+            else:
+                df = df.sort_values(by='date_added', ascending=False)
+                for _, row in df.iterrows(): display_job_card(row, is_admin=True)
+
     # --- SEEKER VIEW ---
     elif st.session_state['user_role'] == "seeker":
         user_email = st.session_state['user_email']
@@ -536,31 +604,74 @@ else:
                 uploaded_file = st.file_uploader("UPLOAD DATAPACK (PDF)", type="pdf")
             if uploaded_file:
                 with st.spinner("Running neural analysis..."):
-                    skills = [s for s in ['python', 'sql', 'react', 'java', 'ai', 'data', 'llm', 'machine learning', 'pytorch', 'prompt engineering'] if s in extract_text_from_pdf(uploaded_file)]
-                    if skills:
-                        st.success(f"**Parameters Found:** {', '.join(skills).title()}")
-                        st.write("---")
-                        
-                        # Save the PDF and the skills to Postgres!
-                        conn = psycopg2.connect(DB_URL)
-                        c = conn.cursor()
-                        today_str = datetime.now().strftime("%Y-%m-%d")
-                        pdf_bytes = uploaded_file.getvalue()
-                        skills_str = ", ".join(skills).title()
-                        
-                        c.execute("""
-                            INSERT INTO user_resumes (user_email, resume_data, skills_text, date_uploaded)
-                            VALUES (%s, %s, %s, %s)
-                            ON CONFLICT (user_email) 
-                            DO UPDATE SET resume_data = EXCLUDED.resume_data, skills_text = EXCLUDED.skills_text, date_uploaded = EXCLUDED.date_uploaded
-                        """, (user_email, psycopg2.Binary(pdf_bytes), skills_str, today_str))
-                        conn.commit()
-                        conn.close()
-                        st.toast("⚡ Resume secure-uplinked to Neural Databank!")
-                        
-                        matched = df_seeker[df_seeker['title'].str.lower().str.contains('|'.join(skills))]
-                        if not matched.empty:
-                            st.markdown(f"#### >>> MATCHES FOUND ({len(matched)}):")
-                            for _, row in matched.head(10).iterrows(): display_job_card(row, is_admin=False, user_email=user_email, is_saved=(row['id'] in saved_job_ids))
-                        else: st.info("No matching active nodes currently active.")
-                    else: st.warning("Analysis failed. No valid parameters detected.")
+                    resume_text = extract_text_from_pdf(uploaded_file)
+                    
+                    # --- NEW: GEMINI-POWERED DEEP RESUME SCAN ---
+                    if GEMINI_API_KEY:
+                        try:
+                            model = genai.GenerativeModel("gemini-1.5-flash")
+                            
+                            # Compile active jobs for Gemini to read
+                            job_context = ""
+                            for _, r in df_seeker.iterrows():
+                                job_context += f"ID:{r['id']} | Title:{r['title']} | Company:{r['company']} | Desc:{str(r['description'])[:200]}\n"
+                            
+                            prompt = f"""
+                            Candidate Resume Text:
+                            {resume_text[:2500]}
+                            
+                            Active Jobs List:
+                            {job_context}
+                            
+                            Evaluate the candidate's exact experience level and technical skills. 
+                            Find the top 3 best matching Job IDs from the list.
+                            Return ONLY a comma-separated list of the Job IDs. Do not include any other text or formatting.
+                            """
+                            response = model.generate_content(prompt)
+                            ai_output = response.text
+                            
+                            # Parse Gemini's plain text comma list (e.g. "MAN_123, WWR_456")
+                            matched_ids = [i.strip() for i in ai_output.replace('"', '').replace("'", "").split(',')]
+                            matched = df_seeker[df_seeker['id'].isin(matched_ids)]
+                            
+                            # Save PDF & extracted Gemini skills to Database securely!
+                            conn = psycopg2.connect(DB_URL)
+                            c = conn.cursor()
+                            today_str = datetime.now().strftime("%Y-%m-%d")
+                            pdf_bytes = uploaded_file.getvalue()
+                            
+                            # We quickly extract 5 core skills using Gemini to list on the Admin panel
+                            skills_prompt = f"Read this resume:\n{resume_text[:2000]}\n\nReturn a clean, comma-separated list of the top 5 technical skills found. Return ONLY the skills, nothing else."
+                            skills_response = model.generate_content(skills_prompt)
+                            skills_str = skills_response.text.strip()
+                            
+                            c.execute("""
+                                INSERT INTO user_resumes (user_email, resume_data, skills_text, date_uploaded)
+                                VALUES (%s, %s, %s, %s)
+                                ON CONFLICT (user_email) 
+                                DO UPDATE SET resume_data = EXCLUDED.resume_data, skills_text = EXCLUDED.skills_text, date_uploaded = EXCLUDED.date_uploaded
+                            """, (user_email, psycopg2.Binary(pdf_bytes), skills_str, today_str))
+                            conn.commit()
+                            conn.close()
+                            st.toast("⚡ Resume secure-uplinked to Neural Databank!")
+                            
+                            if not matched.empty:
+                                st.success("🟢 Google Gemini Deep-Neural Analysis Complete.")
+                                st.markdown(f"#### >>> TOP ChatGPT MATCHES ({len(matched)}):")
+                                for _, row in matched.iterrows(): display_job_card(row, is_admin=False, user_email=user_email, is_saved=(row['id'] in saved_job_ids))
+                            else: st.info("Gemini analysis complete. No perfect matches found right now.")
+                            
+                        except Exception as e:
+                            st.error(f"Gemini Analysis failed: {e}")
+                            
+                    # --- FALLBACK: If API Key is missing, use old Keyword Matcher ---
+                    else:
+                        st.warning("⚠️ Gemini API Key not found. Falling back to Keyword Heuristics.")
+                        skills = [s for s in ['python', 'sql', 'react', 'java', 'ai', 'data', 'llm', 'machine learning', 'pytorch', 'prompt engineering'] if s in resume_text]
+                        if skills:
+                            matched = df_seeker[df_seeker['title'].str.lower().str.contains('|'.join(skills))]
+                            if not matched.empty:
+                                st.markdown(f"#### >>> MATCHES FOUND ({len(matched)}):")
+                                for _, row in matched.head(10).iterrows(): display_job_card(row, is_admin=False, user_email=user_email, is_saved=(row['id'] in saved_job_ids))
+                            else: st.info("No matching active nodes currently active.")
+                        else: st.warning("Analysis failed. No valid parameters detected.")
