@@ -43,29 +43,26 @@ def apply_futuristic_css():
     #MainMenu, footer, header {visibility: hidden;}
     .stApp { background-color: #050810; background-image: linear-gradient(rgba(0, 242, 254, 0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(0, 242, 254, 0.03) 1px, transparent 1px); background-size: 30px 30px; background-position: center center; }
     .login-wrapper { display: flex; flex-direction: column; align-items: center; justify-content: center; margin-top: 5vh; animation: float 6s ease-in-out infinite; }
-    @keyframes float { 0% { transform: translateY(0px); } 50% { transform: translateY(-15px); } 100% { transform: translateY(0px); } }
-    .login-card { background: linear-gradient(145deg, rgba(15, 23, 42, 0.7) 0%, rgba(20, 20, 30, 0.5) 100%); border: 1px solid rgba(0, 242, 254, 0.3); border-radius: 20px; padding: 50px 40px; box-shadow: 0 0 40px rgba(0, 242, 254, 0.1); text-align: center; backdrop-filter: blur(16px); width: 100%; max-width: 500px; transition: all 0.5s ease;}
+    @keyframes float { 0% { transform: translateY(0px); } 50% { transform: translateY(-10px); } 100% { transform: translateY(0px); } }
+    .login-card { background: linear-gradient(145deg, rgba(15, 23, 42, 0.7) 0%, rgba(20, 20, 30, 0.5) 100%); border: 1px solid rgba(0, 242, 254, 0.3); border-radius: 20px; padding: 40px 30px; box-shadow: 0 0 40px rgba(0, 242, 254, 0.1); text-align: center; backdrop-filter: blur(16px); width: 100%; max-width: 500px; transition: all 0.5s ease;}
     .maintenance-card { border: 1px solid rgba(255, 71, 87, 0.5) !important; box-shadow: 0 0 50px rgba(255, 71, 87, 0.2) !important; }
-    .app-title-large { font-size: 4rem; font-weight: 900; background: linear-gradient(90deg, #00f2fe 0%, #4facfe 50%, #b06ab3 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; text-shadow: 0px 0px 25px rgba(0, 242, 254, 0.5); letter-spacing: -2px; margin-bottom: 5px; line-height: 1.1; }
+    .app-title-large { font-size: 3rem; font-weight: 900; background: linear-gradient(90deg, #00f2fe 0%, #4facfe 50%, #b06ab3 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; text-shadow: 0px 0px 25px rgba(0, 242, 254, 0.5); letter-spacing: -2px; margin-bottom: 5px; line-height: 1.1; }
     .app-title-maintenance { color: #ff4757 !important; background: none !important; -webkit-text-fill-color: #ff4757 !important; text-shadow: 0px 0px 25px rgba(255, 71, 87, 0.8) !important;}
-    .system-status { font-family: 'Share Tech Mono', monospace; color: #00ffcc; font-size: 0.9rem; margin-bottom: 25px; animation: blink 2s linear infinite; }
+    .system-status { font-family: 'Share Tech Mono', monospace; color: #00ffcc; font-size: 0.8rem; margin-bottom: 15px; animation: blink 2s linear infinite; }
     .system-status-offline { color: #ff4757 !important; text-shadow: 0 0 10px #ff4757 !important; }
     @keyframes blink { 0%, 100% { opacity: 1; text-shadow: 0 0 10px #00ffcc; } 50% { opacity: 0.4; text-shadow: none; } }
-    .cyber-btn { display: inline-block; margin-top: 20px; padding: 15px 40px; background: rgba(0, 242, 254, 0.1); color: #00f2fe !important; font-family: 'Share Tech Mono', monospace; font-size: 1.2rem; font-weight: bold; text-decoration: none; border: 1px solid #00f2fe; border-radius: 4px; text-transform: uppercase; letter-spacing: 2px; transition: all 0.3s ease; box-shadow: inset 0 0 10px rgba(0, 242, 254, 0.1), 0 0 15px rgba(0, 242, 254, 0.2); }
+    .cyber-btn { display: inline-block; margin-top: 15px; padding: 12px 30px; background: rgba(0, 242, 254, 0.1); color: #00f2fe !important; font-family: 'Share Tech Mono', monospace; font-size: 1.1rem; font-weight: bold; text-decoration: none; border: 1px solid #00f2fe; border-radius: 4px; text-transform: uppercase; letter-spacing: 2px; transition: all 0.3s ease; box-shadow: inset 0 0 10px rgba(0, 242, 254, 0.1), 0 0 15px rgba(0, 242, 254, 0.2); }
     .cyber-btn:hover { background: #00f2fe; color: #050810 !important; box-shadow: 0 0 30px rgba(0, 242, 254, 0.8); transform: scale(1.05); }
     .admin-bypass-btn { margin-top: 15px; font-size: 0.8rem !important; border: 1px solid #ff4757 !important; color: #ff4757 !important; background: transparent !important; box-shadow: none !important;}
     .admin-bypass-btn:hover { background: #ff4757 !important; color: white !important; box-shadow: 0 0 20px #ff4757 !important; }
     .app-title-small { font-size: 2.5rem; font-weight: 900; background: linear-gradient(90deg, #00f2fe 0%, #4facfe 50%, #b06ab3 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; text-shadow: 0px 0px 15px rgba(0, 242, 254, 0.3); margin-bottom: 0px; text-transform: uppercase; }
     .cyber-warning-banner { background: rgba(255, 165, 2, 0.1); border: 1px solid #ffa502; color: #ffa502; padding: 12px; border-radius: 5px; text-align: center; font-family: 'Share Tech Mono', monospace; font-weight: bold; margin-bottom: 20px; box-shadow: 0 0 10px rgba(255, 165, 2, 0.2); animation: pulse-warn 2s infinite; letter-spacing: 1px;}
     @keyframes pulse-warn { 0% { box-shadow: 0 0 10px rgba(255, 165, 2, 0.2); } 50% { box-shadow: 0 0 20px rgba(255, 165, 2, 0.5); } 100% { box-shadow: 0 0 10px rgba(255, 165, 2, 0.2); } }
-    [data-testid="stVerticalBlockBorderWrapper"] { border-radius: 12px !important; border: 1px solid rgba(0, 242, 254, 0.15) !important; background: rgba(15, 23, 42, 0.4) !important; backdrop-filter: blur(10px) !important; transition: all 0.2s ease-in-out; }
+    [data-testid="stVerticalBlockBorderWrapper"] { border-radius: 12px !important; border: 1px solid rgba(0, 242, 254, 0.15) !important; background: rgba(15, 23, 42, 0.4) !important; backdrop-filter: blur(10px) !important; transition: all 0.2s ease-in-out; margin-bottom: 15px; }
     [data-testid="stVerticalBlockBorderWrapper"]:hover { border: 1px solid rgba(0, 242, 254, 0.5) !important; box-shadow: 0 0 20px rgba(0, 242, 254, 0.15); }
     .tech-tag { background: rgba(0, 242, 254, 0.1); color: #00f2fe; padding: 4px 10px; border-radius: 4px; font-size: 0.8rem; font-weight: 700; border: 1px solid rgba(0, 242, 254, 0.3); margin-right: 8px; font-family: 'Share Tech Mono', monospace;}
-    
-    /* NEW: Redacted Tag styling for Teaser Mode */
     .tech-tag-redacted { background: rgba(255, 71, 87, 0.1); color: #ff4757; padding: 4px 10px; border-radius: 4px; font-size: 0.8rem; font-weight: 700; border: 1px solid rgba(255, 71, 87, 0.3); margin-right: 8px; font-family: 'Share Tech Mono', monospace;}
-    
-    .company-avatar { width: 60px; height: 60px; background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border: 2px solid #b06ab3; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.8rem; font-weight: bold; color: #b06ab3; box-shadow: 0 0 15px rgba(176, 106, 179, 0.4); margin: auto; }
+    .company-avatar { width: 50px; height: 50px; background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border: 2px solid #b06ab3; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; font-weight: bold; color: #b06ab3; box-shadow: 0 0 15px rgba(176, 106, 179, 0.4); margin: auto; }
     .company-avatar-locked { border: 2px solid #ff4757; color: #ff4757; box-shadow: 0 0 15px rgba(255, 71, 87, 0.4); }
     .stTabs [data-baseweb="tab-list"] { gap: 30px; }
     .stTabs [data-baseweb="tab"] { font-size: 1.1rem; font-weight: 700; color: #8892b0; }
@@ -77,8 +74,11 @@ def apply_futuristic_css():
 apply_futuristic_css()
 
 # ==========================================
-# 3. DATABASE SETUP 
+# 3. DATABASE SETUP
 # ==========================================
+USER_HOME = os.path.expanduser("~") 
+DB_PATH = os.path.join(USER_HOME, 'ai_jobs_production.db')
+
 def init_db():
     conn = psycopg2.connect(DB_URL)
     c = conn.cursor()
@@ -139,7 +139,6 @@ def display_job_card(row, is_admin=False, user_email=None, is_saved=False, is_te
     is_expired = False
     if is_admin and pd.to_datetime(row['date_added']) < (pd.to_datetime('today') - timedelta(days=30)): is_expired = True
 
-    # Salary formatting is safe for all modes
     sal_val = str(row['salary_amount']).strip()
     if sal_val and sal_val.lower() not in ["n/a", ""]:
         if not sal_val.startswith("$"): sal_val = "$" + sal_val
@@ -154,12 +153,11 @@ def display_job_card(row, is_admin=False, user_email=None, is_saved=False, is_te
                 st.markdown("<div class='company-avatar company-avatar-locked'>🔒</div>", unsafe_allow_html=True)
             with col_details:
                 st.markdown(f"<h3 style='margin-bottom:0px; color:#ffffff;'>{row['title']}</h3>", unsafe_allow_html=True)
-                st.markdown("<p style='color:#ff4757; font-size: 1.1rem; margin-top: 5px;'>[ COMPANY REDACTED ]</p>", unsafe_allow_html=True)
+                st.markdown("<p style='color:#ff4757; font-size: 1rem; margin-top: 5px;'>[ COMPANY REDACTED ]</p>", unsafe_allow_html=True)
                 st.markdown(f"<span class='tech-tag-redacted'>LOC: [ ENCRYPTED ]</span> <span class='tech-tag'>PAY: {sal}</span>", unsafe_allow_html=True)
             with col_action:
                 st.write("")
-                st.write("")
-                st.markdown("<p style='color:#8892b0; font-size:0.8rem; text-align:center;'>Log in to decrypt application link.</p>", unsafe_allow_html=True)
+                st.markdown("<p style='color:#8892b0; font-size:0.8rem; text-align:center;'>Log in to decrypt link.</p>", unsafe_allow_html=True)
         return
 
     # --- NORMAL MODE (Logged In) ---
@@ -171,7 +169,7 @@ def display_job_card(row, is_admin=False, user_email=None, is_saved=False, is_te
             title_html = f"<h3 style='margin-bottom:0px; color:#ffffff;'>{row['title']}</h3>"
             if is_expired: title_html = f"<h3 style='margin-bottom:0px; color:#ff4757;'>[EXPIRED] {row['title']}</h3>"
             st.markdown(title_html, unsafe_allow_html=True)
-            st.markdown(f"<p style='color:#8892b0; font-size: 1.1rem; margin-top: 5px;'>{row['company']}</p>", unsafe_allow_html=True)
+            st.markdown(f"<p style='color:#8892b0; font-size: 1rem; margin-top: 5px;'>{row['company']}</p>", unsafe_allow_html=True)
             date_str = str(row['date_added'])[:10]
             st.markdown(f"<span class='tech-tag'>LOC: {row['location']}</span> <span class='tech-tag'>PAY: {sal}</span> <span class='tech-tag'>DATE: {date_str}</span>", unsafe_allow_html=True)
         with col_action:
@@ -218,7 +216,6 @@ if not st.session_state['logged_in'] and 'code' in st.query_params:
             email = user_data.get("email")
             role = "admin" if email in ADMIN_EMAILS else "seeker"
             name = user_data.get("name")
-            
             st.session_state.update({'logged_in': True, 'user_name': name, 'user_email': email, 'user_role': role})
             st.query_params.clear()
             
@@ -239,7 +236,6 @@ if not st.session_state['logged_in'] and 'code' in st.query_params:
 
 is_maint, res_time, maint_msg, is_warn, warn_msg = get_sys_status()
 
-# 🛑 MAINTENANCE LOCKOUT LOGIC 🛑
 if is_maint == 1 and st.session_state['user_role'] != "admin":
     if st.session_state['logged_in']:
         col1, col2, col3 = st.columns([1, 2, 1])
@@ -282,29 +278,26 @@ if is_maint == 1 and st.session_state['user_role'] != "admin":
 if not st.session_state['logged_in']:
     auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id={CLIENT_ID}&redirect_uri={REDIRECT_URI}&scope=openid%20email%20profile"
     
-    # 1. The Hero Section
     col1, col2, col3 = st.columns([1, 3, 1])
     with col2:
         st.markdown(f"""
-        <div class="login-wrapper" style="margin-top: 5vh; margin-bottom: 5vh; animation: none;">
+        <div class="login-wrapper" style="margin-top: 2vh; margin-bottom: 3vh; animation: none;">
             <div style="text-align: center;">
-                <p class="system-status">[ PUBLIC ACCESS: LIMITED ]</p>
-                <div class="app-title-large">NEURAL</div>
-                <div class="app-title-large" style="font-size: 2.5rem; margin-bottom: 20px;">// TALENT GRID</div>
-                <p style="color: #8892b0; font-size: 1.2rem; line-height: 1.5; margin-bottom: 30px;">
-                    The premier decentralized manual hub for Artificial Intelligence, Large Language Models, and Data Science operatives.
+                <p class="system-status" style="margin-bottom:5px;">[ PUBLIC ACCESS: LIMITED ]</p>
+                <div class="app-title-large" style="font-size: 3rem;">NEURAL</div>
+                <div class="app-title-large" style="font-size: 2rem; margin-bottom: 15px;">// TALENT GRID</div>
+                <p style="color: #8892b0; font-size: 1.1rem; line-height: 1.5; margin-bottom: 20px;">
+                    The premier decentralized hub for Artificial Intelligence, Large Language Models, and Data Science operatives.
                 </p>
-                <a href="{auth_url}" class="cyber-btn" target="_blank">CONNECT DATASTREAM TO UNLOCK</a>
+                <a href="{auth_url}" class="cyber-btn" target="_blank">🔐 LOGIN TO UNLOCK</a>
             </div>
         </div>
         """, unsafe_allow_html=True)
         
     st.divider()
     
-    # 2. The Teaser Grid
-    st.markdown("<h3 style='text-align: center; color: #8892b0; margin-bottom: 30px;'>[ RECENT ACTIVE NODES ]</h3>", unsafe_allow_html=True)
+    st.markdown("<h4 style='text-align: center; color: #8892b0; margin-bottom: 30px;'>[ RECENT ACTIVE NODES ]</h4>", unsafe_allow_html=True)
     
-    # Pull jobs from database
     conn = psycopg2.connect(DB_URL)
     df_public = pd.read_sql_query("SELECT * FROM jobs", conn)
     conn.close()
@@ -313,12 +306,10 @@ if not st.session_state['logged_in']:
         if 'date_added' in df_public.columns: df_public['date_added'] = pd.to_datetime(df_public['date_added'], errors='coerce').fillna(pd.to_datetime('today'))
         else: df_public['date_added'] = pd.to_datetime('today')
         
-        # Only show active jobs, sort newest first, and limit to top 10
         thirty_days_ago = pd.to_datetime('today') - timedelta(days=30)
         df_public = df_public[df_public['date_added'] >= thirty_days_ago]
         df_public = df_public.sort_values(by='date_added', ascending=False).head(10)
         
-        # Display as Teaser Cards!
         for _, row in df_public.iterrows():
             display_job_card(row, is_admin=False, is_teaser=True)
     else:
@@ -409,7 +400,7 @@ else:
             st.markdown("#### Stage 1: Global Broadcast (Warning)")
             if is_warn == 0:
                 with st.form("warn_form"):
-                    w_msg = st.text_input("Warning Message", value="System maintenance will begin in 15 minutes.")
+                    w_msg = st.text_input("Warning Message", value="System maintenance will begin in 15 minutes. Please save your work.")
                     if st.form_submit_button("📢 BROADCAST WARNING"):
                         conn = psycopg2.connect(DB_URL)
                         c = conn.cursor()
@@ -452,6 +443,7 @@ else:
         with tab1:
             with st.container(border=True):
                 st.markdown("#### INJECT MANUAL NODE")
+                
                 if 'manual_url' not in st.session_state: st.session_state['manual_url'] = ""
                 if 'manual_desc' not in st.session_state: st.session_state['manual_desc'] = ""
                 if 'm_title' not in st.session_state: st.session_state['m_title'] = ""
@@ -462,11 +454,17 @@ else:
                 
                 def sync_url_to_desc():
                     url = st.session_state['manual_url']
-                    if url and "Apply :-" not in st.session_state['manual_desc']: st.session_state['manual_desc'] = f"Apply :- {url}\n\n" + st.session_state['manual_desc']
+                    if url and "Apply :-" not in st.session_state['manual_desc']:
+                        st.session_state['manual_desc'] = f"Apply :- {url}\n\n" + st.session_state['manual_desc']
+                
                 def clear_form_cb():
-                    for k in ['m_title', 'm_company', 'm_location', 'm_sal_amount', 'manual_url', 'manual_desc']: st.session_state[k] = ""
+                    for k in ['m_title', 'm_company', 'm_location', 'm_sal_amount', 'manual_url', 'manual_desc']: 
+                        st.session_state[k] = ""
+                
                 def inject_node_cb():
-                    t, c, u = st.session_state['m_title'], st.session_state['m_company'], st.session_state['manual_url']
+                    t = st.session_state['m_title']
+                    c = st.session_state['m_company']
+                    u = st.session_state['manual_url']
                     if t and c and u:
                         loc = st.session_state.get('m_location', 'Remote') if st.session_state.get('m_is_remote') == 'No' else 'Remote'
                         conn = psycopg2.connect(DB_URL)
@@ -478,7 +476,8 @@ else:
                         conn.close()
                         clear_form_cb()
                         st.session_state['inject_status'] = "success"
-                    else: st.session_state['inject_status'] = "error"
+                    else:
+                        st.session_state['inject_status'] = "error"
 
                 if st.session_state['inject_status'] == "success":
                     st.success("Injection Successful! Form reset for next entry.")
@@ -490,7 +489,8 @@ else:
                 st.text_input("Job Title", key="m_title")
                 st.text_input("Entity / Company", key="m_company")
                 m_is_remote = st.radio("Is this a Remote position?", ["Yes", "No"], horizontal=True, key="m_is_remote")
-                if m_is_remote == "No": st.text_input("Specify Location", key="m_location")
+                if m_is_remote == "No":
+                    st.text_input("Specify Location", key="m_location")
                 
                 c1, c2 = st.columns(2)
                 with c1: st.text_input("Compensation (in USD $)", key="m_sal_amount")
@@ -500,8 +500,10 @@ else:
                 st.text_area("File Contents", key="manual_desc", height=150)
                 
                 col_btn1, col_btn2 = st.columns([4, 1])
-                with col_btn1: st.button("🚀 INJECT NODE", type="primary", use_container_width=True, on_click=inject_node_cb)
-                with col_btn2: st.button("🧹 CLEAR ALL", use_container_width=True, on_click=clear_form_cb)
+                with col_btn1:
+                    st.button("🚀 INJECT NODE", type="primary", use_container_width=True, on_click=inject_node_cb)
+                with col_btn2:
+                    st.button("🧹 CLEAR ALL", use_container_width=True, on_click=clear_form_cb)
 
         if tab_ai:
             with tab_ai:
